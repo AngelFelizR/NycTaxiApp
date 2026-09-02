@@ -1,0 +1,10 @@
+services:
+  nyc-taxi-app:
+    build:
+      context: .
+    image: angelfelizr/nyc-taxi-app:4.5.2
+    container_name: nyc-taxi-app
+    ports:
+      - "2222:22"
+    volumes:
+      - .:/root/NycTaxiApp

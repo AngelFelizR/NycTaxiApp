@@ -1,0 +1,28 @@
+# R specific
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# Quarto / RMarkdown builds
+*_cache/
+*.utf8.md
+*.knit.md
+*.html
+*.pdf
+_site/
+!docs/**/*.html
+
+# Project data (large, not for Git)
+.vscode/
+.quarto/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Nix
+result
+*.lock
+
+/.quarto/
