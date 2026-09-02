@@ -74,17 +74,6 @@ COPY nix/r-github.nix /root/nix/r-github.nix
 RUN nix-build /root/nix/r-github.nix -o /nix/profiles/r-github && \
     nix-collect-garbage -d
 
-# ── Layer 12: wire R up to actually find everything just built ──────────────
-ENV R_LIBS_SITE="/nix/profiles/r-core/library:/nix/profiles/r-geo/library:/nix/profiles/r-ml/library:/nix/profiles/r-plotting/library:/nix/profiles/r-shiny/library:/nix/profiles/r-github/library" \
-    PATH="${PATH}:/nix/profiles/system-packages/bin" \
-    FONTCONFIG_FILE="/nix/profiles/system-packages/etc/fonts/fonts.conf" \
-    FONTCONFIG_PATH="/nix/profiles/system-packages/etc/fonts/" \
-    XDG_DATA_DIRS="/nix/profiles/system-packages/share:${XDG_DATA_DIRS}"
-
-# ── Layer 13: app source + launch ────────────────────────────────────────────
-COPY . /root/app
-WORKDIR /root/app
-
 EXPOSE 3838 22
 
 RUN mkdir -p /var/run/sshd /root/.ssh && \
