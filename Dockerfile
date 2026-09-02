@@ -1,3 +1,8 @@
+# NOTE: each R layer references a specific nix/r-*.nix file.
+# default.nix does auto-discover these files, but here the ordering
+# and separation are intentionally manual (per-layer caching).
+# If you add a new r-*.nix, add its corresponding layer here too.
+
 FROM ubuntu:24.04
 
 # ── Layer 1: apt base ────────────────────────────────────────────────────────

@@ -1,3 +1,7 @@
+# NOTE: default.nix auto-discovers every r-*.nix file (see readDir below).
+# If you add a new r-*.nix here, the Dockerfile does NOT pick it up
+# automatically: you need to add its own COPY/RUN layer there manually.
+
 let
   pkgs = import ./nix/pkgs.nix;
   systemPackages = import ./nix/system.nix;
