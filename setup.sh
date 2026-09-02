@@ -26,9 +26,9 @@ echo "Waiting for SSH service to be ready..."
 sleep 5
 
 # Verify if the container is actually running
-if [ "$(docker inspect -f '{{.State.Running}}' nyc-taxi 2>/dev/null)" = "true" ]; then
+if [ "$(docker inspect -f '{{.State.Running}}' nyc-taxi-app 2>/dev/null)" = "true" ]; then
     # Copy and secure the public key
-    docker compose cp ~/.ssh/id_ed25519.pub nyc-taxi:/root/.ssh/authorized_keys
+    docker compose cp ~/.ssh/id_ed25519.pub nyc-taxi-app:/root/.ssh/authorized_keys
     docker compose exec nyc-taxi-app chown root:root /root/.ssh/authorized_keys
     docker compose exec nyc-taxi-app chmod 600 /root/.ssh/authorized_keys
     echo "Ready! Connect with: ssh NycTaxi"

@@ -1,18 +1,18 @@
 let
-  # Pin unificado
   pkgs = import ./nix/pkgs.nix;
-  # Entornos de sistema
   systemPackages = import ./nix/system.nix;
-  # Paquetes de R (cada uno es ahora un buildEnv de salida única,
-  # igual que los layers de nix-build en el Dockerfile)
-  rCorePkgs   = import ./nix/r-core.nix;
-  rMlPkgs     = import ./nix/r-ml.nix;
-  rGeoPkgs    = import ./nix/r-geo.nix;
-  rPlotPkgs   = import ./nix/r-plotting.nix;
-  rShinyPkgs  = import ./nix/r-shiny.nix;
-  rGithubPkgs = import ./nix/r-github.nix;
+
+  dirEntries = builtins.readDir ./nix;
+
+  rModuleFiles = builtins.filter
+    (name: pkgs.lib.hasPrefix "r-" name && pkgs.lib.hasSuffix ".nix" name)
+    (builtins.attrNames dirEntries);
+
+  rModuleList = map (file: import (./nix + "/${file}")) rModuleFiles;
 
   shell = pkgs.mkShell {
+    R_LIBS_SITE = pkgs.lib.concatMapStringsSep ":" (p: "${p}/library") rModuleList;
+    buildInputs = [ systemPackages ] ++ rModuleList;
     LOCALE_ARCHIVE =
       if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
       then "${pkgs.glibcLocales}/lib/locale/locale-archive"
@@ -29,15 +29,6 @@ let
       export XDG_DATA_DIRS="${pkgs.dejavu_fonts}/share:${pkgs.freefont_ttf}/share:$XDG_DATA_DIRS"
       fc-cache -f 2>/dev/null || true
     '';
-    buildInputs = [
-      systemPackages
-      rCorePkgs
-      rMlPkgs
-      rGeoPkgs
-      rPlotPkgs
-      rShinyPkgs
-      rGithubPkgs
-    ];
   };
 in
 {

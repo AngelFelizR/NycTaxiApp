@@ -5,6 +5,29 @@ in
     name = "r-shiny-pkgs";
     paths = builtins.attrValues {
       inherit (pkgs.rPackages)
-        shiny golem bslib;
+        # Normal shiny
+        shiny
+        bslib
+        mirai
+
+        # Interactive plots
+        ggiraph
+        echarts4r
+        
+        # Creating table
+        reactable
+        reactablefmtr
+        
+        # Collecting data
+        shinybrowser
+        
+        # Working with html
+        htmltools
+        htmlwidgets
+        fontawesome
+        
+        # Adding CSS
+        # https://cran.r-project.org/web/packages//hover/
+        hover;
     };
   }
