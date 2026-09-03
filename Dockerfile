@@ -1,7 +1,16 @@
+# NOTE on Nix setup:
+# - `nix-path` is pinned in Layer 2 to avoid Determinate's default
+#   (nixpkgs=flake:flakehub.com/.../nixpkgs-weekly), which would otherwise
+#   pull a different nixpkgs than nix/pkgs.nix at runtime.
+# - Layer 13 builds `default.nix -A shell` so the stdenv bootstrap toolchain
+#   (diffutils, gnumake, patchelf, etc.) is baked in, not fetched on first
+#   `nix-shell` at runtime.
+#
 # NOTE: each R layer references a specific nix/r-*.nix file.
 # default.nix does auto-discover these files, but here the ordering
 # and separation are intentionally manual (per-layer caching).
-# If you add a new r-*.nix, add its corresponding layer here too.
+# If you add a new r-*.nix, add its corresponding layer here too
+# (Layer 13 will also pick it up automatically as a safety net).
 
 FROM ubuntu:24.04
 
@@ -22,7 +31,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/
     --init none \
     --no-confirm
 
-RUN mkdir -p /etc/nix && echo "sandbox = false" >> /etc/nix/nix.conf
+RUN mkdir -p /etc/nix && \
+    echo "sandbox = false" >> /etc/nix/nix.conf && \
+    echo "nix-path = nixpkgs=https://github.com/rstats-on-nix/nixpkgs/archive/2025-12-02.tar.gz" >> /etc/nix/nix.conf
 
 ENV PATH="${PATH}:/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin" \
     BASH_ENV=/nix/var/nix/profiles/default/etc/profile.d/nix.sh \
@@ -72,6 +83,16 @@ RUN nix-build /root/nix/r-shiny.nix -o /nix/profiles/r-shiny && \
 # ── Layer 11: custom-built packages (pins, roxygen2) ─────────────────────────
 COPY nix/r-github.nix /root/nix/r-github.nix
 RUN nix-build /root/nix/r-github.nix -o /nix/profiles/r-github && \
+    nix-collect-garbage -d
+
+# ── Layer 12: dev-only R packages (golem, devtools) ──────────────────────────
+COPY nix/r-dev.nix /root/nix/r-dev.nix
+RUN nix-build /root/nix/r-dev.nix -o /nix/profiles/r-dev && \
+    nix-collect-garbage -d
+
+# ── Layer 13: realizar el shell completo (incluye stdenv toolchain) ─────────
+COPY default.nix /root/default.nix
+RUN nix-build /root/default.nix -A shell -o /nix/profiles/dev-shell && \
     nix-collect-garbage -d
 
 EXPOSE 3838 22
