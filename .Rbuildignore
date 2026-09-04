@@ -3,5 +3,8 @@
 ^data-raw$
 dev_history.R
 ^dev$
+^nix$
 $run_dev.*
 ^.here$
+^LICENSE\.md$
+^README\.Rmd$

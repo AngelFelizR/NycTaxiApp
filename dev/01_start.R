@@ -19,18 +19,18 @@
 ## to change the name in the app_sys() function in app_config.R /!\
 ##
 golem::fill_desc(
-  pkg_name = "NycTaxiApp", # The name of the golem package containing the app (typically lowercase, no underscore or periods)
-  pkg_title = "PKG_TITLE", # What the Package Does (One Line, Title Case, No Period)
-  pkg_description = "PKG_DESC.", # What the package does (one paragraph).
+  pkg_name = "NycTaxiApp",
+  pkg_title = "An App to Share Policy",
+  pkg_description = "This app provides an interface to interact with the trained models and interpret the results.",
   authors = person(
-    given = "AUTHOR_FIRST", # Your First Name
-    family = "AUTHOR_LAST", # Your Last Name
-    email = "AUTHOR@MAIL.COM", # Your email
-    role = c("aut", "cre") # Your role (here author/creator)
+    given = "Angel Esteban",
+    family = "Feliz Ferreras",
+    email = "angel.esteban.feliz@gmail.com",
+    role = c("aut", "cre")
   ),
-  repo_url = NULL, # The URL of the GitHub repo (optional),
-  pkg_version = "0.0.0.9000", # The version of the package containing the app
-  set_options = TRUE # Set the global golem options
+  repo_url = "https://github.com/angelFelizR/NycTaxiApp", # Corregido: comillas agregadas
+  pkg_version = "0.0.0.9000",
+  set_options = TRUE
 )
 
 ## Install the required dev dependencies ----
@@ -38,7 +38,7 @@ golem::install_dev_deps()
 
 ## Create Common Files ----
 ## See ?usethis for more information
-usethis::use_mit_license("Golem User") # You can set another license here
+usethis::use_lgpl_license(version = 3, include_future = TRUE) # You can set another license here
 golem::use_readme_rmd(open = FALSE)
 devtools::build_readme()
 # Note that `contact` is required since usethis version 2.1.5

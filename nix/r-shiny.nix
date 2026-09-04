@@ -9,6 +9,7 @@ in
         shiny
         bslib
         mirai
+        golem
 
         # Interactive plots
         ggiraph
