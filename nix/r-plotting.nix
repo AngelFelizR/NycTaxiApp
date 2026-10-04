@@ -5,6 +5,12 @@ in
     name = "r-plotting-pkgs";
     paths = builtins.attrValues {
       inherit (pkgs.rPackages)
-        sysfonts showtext ggplot2 ggtext ggrepel scales;
+        sysfonts
+        showtext
+        ggplot2
+        ggtext
+        ggrepel
+        scales
+        ggiraph;
     };
   }

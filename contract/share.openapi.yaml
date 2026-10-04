@@ -1,0 +1,327 @@
+openapi: 3.1.0
+info:
+  title: NYC Taxi Decision Simulator - Public share service
+  description: |
+    Public HTTP surface of the `share` service (plumber2, own image, no
+    database access): the three routes Nginx exposes to the Internet.
+
+    **Unauthenticated.** Everything here is public by design: the share token
+    is 12 chars base64url (72 bits, unguessable) and the payload never
+    contains `experiment_id`, emails or any other PII. The service itself
+    calls the private API (`GET /share-data/{token}`, `POST /waitlist`) over
+    the Docker network with `X-Internal-Key` + `X-Client-IP`; those calls are
+    documented in `openapi.yaml`.
+
+    Nginx is the only entry point and applies `limit_req` at 10 r/s per IP to
+    `/share/` and `/waitlist`; the per-IP daily waitlist limit (5/day) is
+    enforced by the API and returned as 429. `GET /health` exists for the
+    container healthcheck but is not part of the public surface, and
+    `GET /share/client-token` only exists if Plan B (§5.4) is activated.
+  version: 0.1.0
+  license:
+    name: MIT
+    identifier: MIT
+  contact:
+    name: Angel Feliz Ferreras
+    url: https://github.com/AngelFelizR/NycTaxiApp
+    email: angel.esteban.feliz@gmail.com
+servers:
+  - url: https://nyctaxiapp.angelfeliz.com
+    description: Production (Cloudflare edge -> Nginx -> share:8001)
+  - url: http://127.0.0.1:8001
+    description: Local development (share service only)
+security: []
+tags:
+  - name: share
+    description: Public result page (HTML + PNG) rendered from aggregated data.
+  - name: waitlist
+    description: Waitlist signup form (capacity page and share CTA).
+
+paths:
+  /share/{token}:
+    get:
+      operationId: getSharePage
+      summary: Share page (static HTML with Open Graph)
+      description: |
+        Server-rendered static HTML, **never JavaScript**: LinkedIn, X and
+        Facebook read the `<head>` as-is. The visible body shows the result
+        PNG, one context line and a plain `<a>` CTA to
+        `https://nyctaxiapp.angelfeliz.com/?ref=share`. The title,
+        `og:description` and copy depend on the `outcome` of the finished
+        experiment and on `seed_is_custom` (custom seeds always use the
+        neutral wording):
+
+        | `outcome` | Label (PNG) | Default share text |
+        |---|---|---|
+        | `beat_model` | I beat the Model! | I beat the model today. 🚕📊 |
+        | `tied_model` | I matched the Model | I just matched the XGBoost policy over a simulated 8-hour NYC taxi shift. Can you beat it? 🚕📊 |
+        | `beat_baseline` | I beat the Baseline! | I just simulated a full day as an NYC taxi driver. I couldn't beat the model, but I beat the baseline. Can you? 🚕📊 |
+        | `lost_to_baseline` | The Model won | I simulated 8 hours as an NYC taxi driver and did worse than simply accepting every ride. Harder than it looks. 📉🚕 |
+        | `no_rides` | No rides, no pay | I simulated an NYC taxi shift by rejecting every ride. Earnings: $0. Can you do better? 🚕 |
+
+        The `outcome` values and their server-side precedence are defined once
+        in `contract/openapi.yaml` (`components.schemas.Outcome`); this file
+        only documents how each value maps to visible copy.
+
+        View counts (`share:views:{token}` in Redis, INCR here, bots filtered
+        by User-Agent) are the reason this HTML is not cached at the edge,
+        while the PNG is. Rate limit: Nginx 10 r/s per IP.
+      tags: [share]
+      parameters:
+        - $ref: "#/components/parameters/ShareToken"
+        - $ref: "#/components/parameters/Ref"
+      responses:
+        "200":
+          description: HTML page for a finished experiment.
+          headers:
+            Cache-Control:
+              description: HTML is never cached at the edge so views can be counted.
+              schema:
+                type: string
+                example: no-cache
+            Content-Type:
+              description: Static HTML with UTF-8 charset.
+              schema:
+                type: string
+                example: text/html; charset=utf-8
+          content:
+            text/html:
+              schema:
+                type: string
+                description: Complete HTML document (no JavaScript, responsive at 390 px).
+              example: |
+                <!doctype html>
+                <html lang="en">
+                <head>
+                  <meta charset="utf-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1">
+                  <meta property="og:title" content="NYC Taxi Decision Simulator - Day #aZ3kQ9">
+                  <meta property="og:description" content="I beat the model today. 🚕📊">
+                  <meta property="og:image" content="https://nyctaxiapp.angelfeliz.com/share/aZ3kQ9mLp1Rt.png">
+                  <meta property="og:image:width" content="1200">
+                  <meta property="og:image:height" content="630">
+                  <meta property="og:url" content="https://nyctaxiapp.angelfeliz.com/share/aZ3kQ9mLp1Rt">
+                  <meta name="twitter:card" content="summary_large_image">
+                  <title>NYC Taxi Decision Simulator - Day #aZ3kQ9</title>
+                </head>
+                <body>
+                  <h1>Day #aZ3kQ9</h1>
+                  <img src="/share/aZ3kQ9mLp1Rt.png" alt="I beat the Model!" width="1200" height="630">
+                  <p>You earned more per hour than the XGBoost policy in this simulated shift.</p>
+                  <a href="https://nyctaxiapp.angelfeliz.com/?ref=share">Play your own day</a>
+                </body>
+                </html>
+        "404":
+          description: 404 - unknown token, or the experiment is not `finished` yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: not_found
+                message: Not found.
+        "429":
+          description: 429 - Nginx `limit_req` exceeded (10 r/s per IP). Nginx serves its own error page.
+
+  /share/{token}.png:
+    get:
+      operationId: getShareImage
+      summary: Result card (PNG 1200x630)
+      description: |
+        Social card rendered with `patchwork` + `ragg` (system fonts), 1200x630:
+        three cumulative curves (user / policy / baseline) plus the big label
+        for the `outcome` and, when `seed_is_custom`, the neutral wording with
+        "Custom seed - unofficial". No `experiment_id`, no PII: the card is
+        identified only by "Day #" + the first 6 chars of the share token.
+
+        Rendered only for `finished` experiments (404 otherwise). Bytes are
+        cached in Redis (TTL 24 h) and served with `Cache-Control`, backed by a
+        Cloudflare cache rule for `/share/*.png`. Rate limit: Nginx 10 r/s per
+        IP.
+      tags: [share]
+      parameters:
+        - $ref: "#/components/parameters/ShareToken"
+      responses:
+        "200":
+          description: PNG image (1200x630) for a finished experiment.
+          headers:
+            Cache-Control:
+              description: "Three-level cache: response header, Cloudflare rule, Redis bytes (TTL 24 h)."
+              schema:
+                type: string
+                example: public, max-age=86400, s-maxage=604800
+            Content-Type:
+              description: PNG media type.
+              schema:
+                type: string
+                example: image/png
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+                description: Binary PNG payload, 1200x630 px.
+        "404":
+          description: 404 - unknown token, or the experiment is not `finished` yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: not_found
+                message: Not found.
+        "429":
+          description: 429 - Nginx `limit_req` exceeded (10 r/s per IP). Nginx serves its own error page.
+
+  /waitlist:
+    post:
+      operationId: joinWaitlist
+      summary: Join the waitlist (public form)
+      description: |
+        Validates the email (simple regex + length < 254) and forwards it to
+        the private API (`POST /waitlist`) together with `X-Internal-Key` and
+        `X-Client-IP`; the API stores `email`, `ip_hash` and country and
+        enforces 5 signups per day per real IP. Nginx sets `X-Client-IP` from
+        `CF-Connecting-IP` on the way in; browsers never talk to the API.
+      tags: [waitlist]
+      parameters:
+        - $ref: "#/components/parameters/ClientIp"
+        - $ref: "#/components/parameters/CfIpCountry"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WaitlistRequest"
+            example:
+              email: fan@example.com
+      responses:
+        "200":
+          description: Email accepted and stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              example:
+                message: You are on the waitlist. We will email you when a spot opens.
+        "400":
+          description: 400 - payload failed validation (forwarded from the API).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: bad_request
+                message: The request payload is invalid.
+        "422":
+          description: 422 - email is syntactically valid but rejected (forwarded from the API).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unprocessable_entity
+                message: That email address is not valid.
+        "429":
+          description: 429 - more than 5 signups per IP per day (API limit), or Nginx `limit_req` (10 r/s).
+          headers:
+            Retry-After:
+              description: Seconds until the daily window resets (midnight UTC).
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: rate_limit_exceeded
+                message: You've reached the limit of 5 signups per day.
+        "503":
+          description: 503 - the private API is unreachable (forwarded), or Nginx intercepted an upstream error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: service_unavailable
+                message: Service temporarily unavailable, please try again later.
+
+components:
+  parameters:
+    ShareToken:
+      name: token
+      in: path
+      required: true
+      description: |
+        12-char base64url share token (72 bits of entropy, public, appears in
+        share URLs). Its entropy makes enumeration unfeasible; no signature.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{12}$"
+        example: aZ3kQ9mLp1Rt
+    Ref:
+      name: ref
+      in: query
+      required: false
+      description: |
+        Traffic source of the share click (`?ref=linkedin`, `?ref=x`,
+        `?ref=copy`). One token per experiment, differentiated by this param;
+        logged in structured logs, never used for authorization.
+      schema:
+        type: string
+        enum: [linkedin, x, copy, other]
+    ClientIp:
+      name: X-Client-IP
+      in: header
+      required: false
+      description: |
+        Real client IP set by Nginx from `CF-Connecting-IP` on the way into
+        `share`, and forwarded by `share` to the private API on every call.
+        Hashed with `IP_HASH_SALT`, never stored or logged in clear.
+      schema:
+        type: string
+        example: 203.0.113.7
+    CfIpCountry:
+      name: CF-IPCountry
+      in: header
+      required: false
+      description: Two-letter country code set by Cloudflare; stored on the waitlist row (never an IP).
+      schema:
+        type: string
+        minLength: 2
+        maxLength: 2
+        example: ES
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      description: Standard error body; `message` is always English and safe to show to users.
+      properties:
+        error:
+          type: string
+          description: Stable machine-readable code.
+          example: not_found
+        message:
+          type: string
+          description: Human-readable, user-facing text.
+          example: Not found.
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: You are on the waitlist. We will email you when a spot opens.
+
+    WaitlistRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Validated with a simple regex (no MX check).
+          example: fan@example.com

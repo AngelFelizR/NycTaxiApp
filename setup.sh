@@ -33,6 +33,6 @@ if [ "$(docker inspect -f '{{.State.Running}}' nyc-taxi-app 2>/dev/null)" = "tru
     docker compose exec nyc-taxi-app chmod 600 /root/.ssh/authorized_keys
     echo "Ready! Connect with: ssh NycTaxi"
 else
-    echo "ERROR: The container nyc-taxi stopped unexpectedly."
-    echo "Check the reasons by running: docker logs nyc-taxi"
+    echo "ERROR: The container nyc-taxi-app stopped unexpectedly."
+    echo "Check the reasons by running: docker logs nyc-taxi-app"
 fi

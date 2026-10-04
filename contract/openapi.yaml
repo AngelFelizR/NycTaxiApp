@@ -1,0 +1,1855 @@
+openapi: 3.1.0
+info:
+  title: NYC Taxi Decision Simulator - Private API
+  description: |
+    Private plumber2 API for the NYC Taxi Decision Simulator monorepo.
+
+    **Never exposed to the host or the Internet**: no published ports, no Nginx
+    route, no Cloudflare path. Only the Shiny app (`app/`) and the public
+    `share` service call it, over the private Docker network `nyctaxi_api_net`.
+
+    Authentication is two-layered: every endpoint requires `X-Internal-Key`
+    (service-to-service, value of `API_INTERNAL_KEY`), and endpoints under
+    `/experiments/{id}/...` additionally require `X-Resume-Code` (returned once
+    by `POST /experiments`). Clients forward the real client IP in
+    `X-Client-IP` on every call; the API only accepts it together with a valid
+    `X-Internal-Key` and hashes it with `IP_HASH_SALT` before any storage.
+
+    Error messages shown to users are always in English. Standard codes:
+    400 payload invalid, 403 missing/invalid key or resume code, 404 not found,
+    409 conflicting retry, 422 semantically invalid payload, 429 rate limit
+    (with `Retry-After` and `X-RateLimit-*`), 500 internal, 503 model/database/
+    SMTP unavailable.
+  version: 0.1.0
+  license:
+    name: MIT
+    identifier: MIT
+  contact:
+    name: Angel Feliz Ferreras
+    url: https://github.com/AngelFelizR/NycTaxiApp
+    email: angel.esteban.feliz@gmail.com
+servers:
+  - url: http://api:8000
+    description: Private Docker network nyctaxi_api_net (deployment)
+  - url: http://127.0.0.1:8000
+    description: Local development
+security:
+  - InternalKey: []
+tags:
+  - name: health
+    description: Healthchecks for the Docker healthcheck probe.
+  - name: models
+    description: Model inference and start-time validation (policy, decision tree, valid-hours lookup).
+  - name: experiments
+    description: "One simulated 8-hour shift: create, resume, decide, finish, feedback, abandon, email."
+  - name: sensitivity
+    description: Decision-boundary grids for a trip, with Redis caching.
+  - name: data
+    description: Static reference data (zones GeoJSON, seeded trip samples).
+  - name: share
+    description: Aggregated results for the public share service and the waitlist.
+  - name: metrics
+    description: Internal JSON counters (no Prometheus).
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Database pool and model loading status
+      description: Docker healthcheck. Reports pool state and whether every model/data file is loaded in the main process.
+      tags: [health]
+      responses:
+        "200":
+          description: Service healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+                database:
+                  status: ok
+                  connections: 4
+                models:
+                  policy: true
+                  start_validator: true
+                  valid_hours: true
+                  reference_distribution: true
+                model_version: 0.0.1-data
+                app_version: 0.1.0
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Database unreachable or models not loaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: unavailable
+                database:
+                  status: error
+                  connections: 0
+                models:
+                  policy: false
+                  start_validator: false
+                  valid_hours: false
+                  reference_distribution: false
+                model_version: 0.0.1-data
+                app_version: 0.1.0
+
+  /predict:
+    post:
+      operationId: predict
+      summary: Accept/reject inference for one trip
+      description: Runs the XGBoost policy workflow (`AcceptRejectPolicyFitted.qs2`, shared in memory with `mori`). `accepted` is `probability > 0.90` (fixed threshold, part of the policy). Global rate limit applies.
+      tags: [models]
+      parameters:
+        - $ref: "#/components/parameters/ClientIp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PredictRequest"
+            example:
+              trip_id: 88421
+              pulocation_id: 61
+              dolocation_id: 161
+              trip_miles: 9.4
+              trip_time_sec: 1500
+              driver_pay: 20.75
+              tips: 0
+              request_datetime: "2024-05-12T04:30:00Z"
+              hvfhs_license_num: HV0003
+              company: Uber
+      responses:
+        "200":
+          description: Prediction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PredictResponse"
+              example:
+                accepted: true
+                probability: 0.97
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /recommend-start:
+    post:
+      operationId: recommendStart
+      summary: Next valid start time
+      description: "Deterministic lookup over `ValidHoursToStartWorking.qs2` (no model): given `(datetime, company)` returns the next valid `(hour, week_day)`. Global rate limit applies."
+      tags: [models]
+      parameters:
+        - $ref: "#/components/parameters/ClientIp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendStartRequest"
+            example:
+              datetime: "2024-05-12T00:00:00Z"
+              company: Uber
+      responses:
+        "200":
+          description: Recommended start time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendStartResponse"
+              example:
+                company: Uber
+                recommended_datetime: "2024-05-12T20:00:00Z"
+                hour: 20
+                week_day: sunday
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /validate-trip-start:
+    post:
+      operationId: validateTripStart
+      summary: Is this the optimal start?
+      description: Runs the decision-tree workflow (`DecisionTreeWfFitted.qs2`). `better_company` and `better_datetime` are null when `is_optimal` is true. Global rate limit applies.
+      tags: [models]
+      parameters:
+        - $ref: "#/components/parameters/ClientIp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateTripStartRequest"
+            example:
+              company: Lyft
+              datetime: "2024-05-12T00:00:00Z"
+              location_id: 61
+      responses:
+        "200":
+          description: Validation verdict.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateTripStartResponse"
+              example:
+                is_optimal: false
+                better_company: Uber
+                better_datetime: "2024-05-12T20:00:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /sensitivity:
+    post:
+      operationId: sensitivity
+      summary: Decision-boundary grid for a trip
+      description: |
+        Returns three grids (original, pickup changed, drop-off changed) of
+        `trip_time_sec x driver_pay x prob` plus display metadata for the UI
+        (ggiraph). Default grid 50x50; send `X-Device: mobile` for 30x30.
+        Cached in Redis as `sens:{experiment_id}:{trip_id}:{pu}:{do}`, TTL 1h.
+        Rate limited per experiment.
+      tags: [sensitivity]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ClientIpRequired"
+        - $ref: "#/components/parameters/Device"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensitivityRequest"
+            example:
+              experiment_id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+              trip_id: 1234
+              grid_size: 50
+      responses:
+        "200":
+          description: Grids and metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SensitivityResponse"
+              example:
+                recommendation: accept
+                pickup_suggested: 132
+                dropoff_suggested: 144
+                meta:
+                  threshold: 0.9
+                  original_label: "PU (61) Queens - Saint Albans / DO (161) Midtown-Midtown South"
+                  pu_label: "(132) Queens - JFK Airport"
+                  do_label: "(144) Manhattan - Little Italy/NoLiTa"
+                  subtitle_html: "<b>Original:</b> PU (61) Queens - Saint Albans / DO (161) Midtown-Midtown South"
+                  original_point:
+                    trip_time_sec: 2400
+                    driver_pay: 33.5
+                grid_original:
+                  - {trip_time_sec: 600, driver_pay: 8.5, prob: 0.05}
+                  - {trip_time_sec: 1200, driver_pay: 17.0, prob: 0.42}
+                  - {trip_time_sec: 2400, driver_pay: 33.5, prob: 0.93}
+                grid_pu:
+                  - {trip_time_sec: 600, driver_pay: 9.5, prob: 0.07}
+                  - {trip_time_sec: 1200, driver_pay: 18.5, prob: 0.51}
+                  - {trip_time_sec: 2400, driver_pay: 36.0, prob: 0.96}
+                grid_do:
+                  - {trip_time_sec: 600, driver_pay: 7.5, prob: 0.03}
+                  - {trip_time_sec: 1200, driver_pay: 15.5, prob: 0.31}
+                  - {trip_time_sec: 2400, driver_pay: 31.0, prob: 0.88}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /trips/sample:
+    get:
+      operationId: getTripsSample
+      summary: Seeded sample of trips from the dataset
+      description: Deterministic sample from `NycTrips2024_sample_week.parquet` given a seed and starting conditions (used by the UI to preview rides). Global rate limit applies.
+      tags: [data]
+      parameters:
+        - $ref: "#/components/parameters/ClientIp"
+        - name: seed
+          in: query
+          required: false
+          description: Seed for the sample; a fresh random draw is used when omitted.
+          schema:
+            type: integer
+            format: int64
+        - name: company
+          in: query
+          required: false
+          description: Restrict the sample to one company's working day.
+          schema:
+            type: string
+            enum: [Lyft, Uber]
+        - name: start_datetime
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: count
+          in: query
+          required: false
+          description: Number of trips to return.
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        "200":
+          description: Sampled trips.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripsSampleResponse"
+              example:
+                trips:
+                  - trip_id: 88421
+                    pulocation_id: 61
+                    dolocation_id: 161
+                    pickup_zone: Queens - Saint Albans
+                    dropoff_zone: Midtown-Midtown South
+                    miles: 9.4
+                    trip_time_sec: 1500
+                    driver_pay: 20.75
+                    tips: 1.5
+                    request_datetime: "2024-05-12T04:30:00Z"
+                    recommendation: accept
+                    probability: 0.97
+                  - trip_id: 88422
+                    pulocation_id: 161
+                    dolocation_id: 230
+                    pickup_zone: Midtown-Midtown South
+                    dropoff_zone: Union Heights
+                    miles: 7.1
+                    trip_time_sec: 1080
+                    driver_pay: 14.2
+                    tips: 0
+                    request_datetime: "2024-05-12T05:05:00Z"
+                    recommendation: reject
+                    probability: 0.41
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /zones/geojson:
+    get:
+      operationId: getZonesGeojson
+      summary: Zone boundaries as GeoJSON
+      description: Geometry for the Leaflet map (`ZonesShapes.qs2`). Read-only, no rate limit.
+      tags: [data]
+      parameters:
+        - $ref: "#/components/parameters/ClientIp"
+      responses:
+        "200":
+          description: FeatureCollection with one Feature per TLC zone.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeoJsonFeatureCollection"
+              example:
+                type: FeatureCollection
+                features:
+                  - type: Feature
+                    properties:
+                      location_id: 61
+                      zone: Queens - Saint Albans
+                    geometry:
+                      type: Polygon
+                      coordinates:
+                        - - [-73.79, 40.67]
+                          - [-73.78, 40.67]
+                          - [-73.78, 40.68]
+                          - [-73.79, 40.68]
+                          - [-73.79, 40.67]
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /experiments:
+    post:
+      operationId: createExperiment
+      summary: Start a simulated day
+      description: |
+        Creates the experiment, pre-computes the three trajectories (user,
+        policy, baseline) from the same seed and starting conditions, and
+        returns `resume_code` **exactly once** (it is stored only as a SHA-256
+        hash). Sending `seed` marks the result as unofficial
+        (`seed_is_custom: true`). Rate limit: 3 per day per real IP
+        (`X-Client-IP` only counts together with a valid `X-Internal-Key`).
+      tags: [experiments]
+      parameters:
+        - $ref: "#/components/parameters/ClientIpRequired"
+        - $ref: "#/components/parameters/CfIpCountry"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExperimentRequest"
+            example:
+              company: Lyft
+              start_datetime: "2024-05-12T00:00:00Z"
+              start_location_id: 61
+              email: driver@example.com
+              marketing_consent: false
+      responses:
+        "201":
+          description: Experiment created; day state plus the one-time resume code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedExperiment"
+              example:
+                experiment_id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+                resume_code: Gh7Kq2mZx9LpW4vRt8Yb1c
+                share_token: aZ3kQ9mLp1Rt
+                status: in_progress
+                clock: "2024-05-12 00:00:00"
+                pending_hours: 8
+                pct_following_policy: 100
+                current_location_id: 61
+                current_zone: Queens - Saint Albans
+                next_trip:
+                  trip_id: 88421
+                  pulocation_id: 61
+                  dolocation_id: 161
+                  pickup_zone: Queens - Saint Albans
+                  dropoff_zone: Midtown-Midtown South
+                  miles: 9.4
+                  trip_time_sec: 1500
+                  driver_pay: 20.75
+                  tips: 1.5
+                  request_datetime: "2024-05-12T00:05:00Z"
+                  recommendation: accept
+                  probability: 0.97
+                history:
+                  - {step: 0, user: 0, policy: 0, baseline: 0}
+                result: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          description: 429 - more than 3 experiments per IP per day.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: rate_limit_exceeded
+                message: You've reached the limit of 3 experiments per day.
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /experiments/{id}:
+    get:
+      operationId: getExperiment
+      summary: Resume an experiment
+      description: Full experiment record (status, conditions, results, feedback, share token). Used by resume (`?exp=<uuid>` + `X-Resume-Code`).
+      tags: [experiments]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+        - $ref: "#/components/parameters/ClientIp"
+      responses:
+        "200":
+          description: Experiment record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experiment"
+              example:
+                id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+                status: in_progress
+                company: Lyft
+                start_datetime: "2024-05-12T00:00:00Z"
+                start_location_id: 61
+                seed: 20240512
+                seed_is_custom: false
+                model_version: 0.0.1-data
+                app_version: 0.1.0
+                created_at: "2026-10-04T17:10:00Z"
+                updated_at: "2026-10-04T17:22:00Z"
+                finished_at: null
+                share_token: aZ3kQ9mLp1Rt
+                result: null
+                feedback: null
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /experiments/{id}/state:
+    get:
+      operationId: getExperimentState
+      summary: Live day state plus next trip
+      description: Reconstructs the state from `decisions` and computes the next trip on the fly from the seed. `next_trip` is null once the experiment is finished.
+      tags: [experiments]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+        - $ref: "#/components/parameters/ClientIp"
+      responses:
+        "200":
+          description: Day state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              example:
+                experiment_id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+                status: in_progress
+                clock: "2024-05-12 01:25:00"
+                pending_hours: 6.5
+                pct_following_policy: 100
+                current_location_id: 161
+                current_zone: Midtown-Midtown South
+                next_trip:
+                  trip_id: 88455
+                  pulocation_id: 161
+                  dolocation_id: 230
+                  pickup_zone: Midtown-Midtown South
+                  dropoff_zone: Union Heights
+                  miles: 7.1
+                  trip_time_sec: 1080
+                  driver_pay: 14.2
+                  tips: 0
+                  request_datetime: "2024-05-12T01:30:00Z"
+                  recommendation: reject
+                  probability: 0.41
+                history:
+                  - {step: 0, user: 0, policy: 0, baseline: 0}
+                  - {step: 1, user: 20.75, policy: 20.75, baseline: 20.75}
+                result: null
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /experiments/{id}/decisions:
+    post:
+      operationId: createDecision
+      summary: Accept or reject the current trip
+      description: |
+        Write-through after each decision; `POST` is idempotent thanks to the
+        natural key `(experiment_id, decision_source, step)`. Retrying the same
+        payload returns the stored state; a different payload for the same step
+        returns 409. There is no undo.
+      tags: [experiments]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+        - $ref: "#/components/parameters/ClientIp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionRequest"
+            example:
+              trip_id: 88455
+              accepted: false
+      responses:
+        "200":
+          description: State after the decision (next trip or finished).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              example:
+                experiment_id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+                status: in_progress
+                clock: "2024-05-12 01:47:00"
+                pending_hours: 6.1
+                pct_following_policy: 100
+                current_location_id: 161
+                current_zone: Midtown-Midtown South
+                next_trip:
+                  trip_id: 88460
+                  pulocation_id: 161
+                  dolocation_id: 61
+                  pickup_zone: Midtown-Midtown South
+                  dropoff_zone: Queens - Saint Albans
+                  miles: 11.8
+                  trip_time_sec: 1920
+                  driver_pay: 26.4
+                  tips: 2
+                  request_datetime: "2024-05-12T01:50:00Z"
+                  recommendation: accept
+                  probability: 0.92
+                history:
+                  - {step: 0, user: 0, policy: 0, baseline: 0}
+                  - {step: 1, user: 0, policy: 20.75, baseline: 20.75}
+                result: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 409 - the step was already decided with a different payload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: conflict
+                message: This trip was already decided with a different payload.
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /experiments/{id}/finish:
+    post:
+      operationId: finishExperiment
+      summary: End the day and compute the results
+      description: |
+        Runs at 8h+30min (or explicitly). Computes the three wages
+        (`(sum driver_pay + sum tips) / shift hours`, idle time counted, break
+        excluded), `outcome` precedence (no_rides > beat_model > tied_model >
+        beat_baseline > lost_to_baseline) and `user_percentile` against the
+        company reference distribution, then flips `status` to `finished`.
+      tags: [experiments]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+        - $ref: "#/components/parameters/ClientIp"
+      responses:
+        "200":
+          description: Finished experiment including results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experiment"
+              example:
+                id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+                status: finished
+                company: Lyft
+                start_datetime: "2024-05-12T00:00:00Z"
+                start_location_id: 61
+                seed: 20240512
+                seed_is_custom: false
+                model_version: 0.0.1-data
+                app_version: 0.1.0
+                created_at: "2026-10-04T17:10:00Z"
+                updated_at: "2026-10-04T17:35:00Z"
+                finished_at: "2026-10-04T17:35:00Z"
+                share_token: aZ3kQ9mLp1Rt
+                result:
+                  final_user_wage: 27.4
+                  final_policy_wage: 24.9
+                  final_baseline_wage: 21.2
+                  pct_following_policy: 88.0
+                  outcome: beat_model
+                  user_percentile: 73.5
+                  trips_accepted: 7
+                  trips_rejected: 3
+                feedback: null
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /experiments/{id}/feedback:
+    post:
+      operationId: addFeedback
+      summary: Save the post-game rating
+      description: Rating 1-5, optional comment, optional public display consent (off by default).
+      tags: [experiments]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+        - $ref: "#/components/parameters/ClientIp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackRequest"
+            example:
+              rating: 4
+              comment: The shortcuts make trips fast.
+              public: false
+      responses:
+        "200":
+          description: Feedback stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              example:
+                message: Feedback saved.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /experiments/{id}/abandon:
+    post:
+      operationId: abandonExperiment
+      summary: Mark the experiment as abandoned
+      description: Terminal state for experiments the player never finished; excluded from result surfaces.
+      tags: [experiments]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+        - $ref: "#/components/parameters/ClientIp"
+      responses:
+        "200":
+          description: Experiment marked as abandoned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experiment"
+              example:
+                id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+                status: abandoned
+                company: Lyft
+                start_datetime: "2024-05-12T00:00:00Z"
+                start_location_id: 61
+                seed: 20240512
+                seed_is_custom: false
+                model_version: 0.0.1-data
+                app_version: 0.1.0
+                created_at: "2026-10-04T17:10:00Z"
+                updated_at: "2026-10-04T17:31:00Z"
+                finished_at: null
+                share_token: aZ3kQ9mLp1Rt
+                result: null
+                feedback: null
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /experiments/{id}/share-email:
+    post:
+      operationId: shareEmail
+      summary: Email the result card
+      description: |
+        Synchronous SMTP send (no queues) with the PNG fetched from the `share`
+        service over the private network (`http://share:8001/share/{token}.png`).
+        `email` may be omitted when it was already given in Setup. Maximum 3
+        sends per experiment plus a per-IP limit. On SMTP failure returns 503
+        and the user may retry; there are no automatic retries.
+      tags: [experiments, share]
+      security:
+        - InternalKey: []
+          ResumeCode: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+        - $ref: "#/components/parameters/ClientIpRequired"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareEmailRequest"
+            example:
+              email: driver@example.com
+      responses:
+        "200":
+          description: Email accepted and sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              example:
+                message: Email sent.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: 503 - SMTP failure (or model/database unavailable); no automatic retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: service_unavailable
+                message: We couldn't send the email, please try again later.
+
+  /share-data/{token}:
+    get:
+      operationId: getShareData
+      summary: Aggregated result for the public share service
+      description: |
+        Everything the public share pages need: outcome, wages, curves, share
+        text. **Never includes** `experiment_id`, emails or any PII. Returns 404
+        when the token is unknown or the experiment is not `finished`.
+      tags: [share]
+      parameters:
+        - $ref: "#/components/parameters/ShareToken"
+        - $ref: "#/components/parameters/ClientIp"
+      responses:
+        "200":
+          description: Aggregated result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareDataResponse"
+              example:
+                day_label: Day #aZ3kQ9
+                outcome: beat_model
+                seed_is_custom: false
+                final_user_wage: 27.4
+                final_policy_wage: 24.9
+                final_baseline_wage: 21.2
+                user_percentile: 73.5
+                pct_following_policy: 88
+                trips_accepted: 7
+                trips_rejected: 3
+                label: I beat the Model!
+                share_text: I beat the model today. 🚕📊
+                history:
+                  - {step: 0, user: 0, policy: 0, baseline: 0}
+                  - {step: 1, user: 20.75, policy: 20.75, baseline: 20.75}
+                  - {step: 2, user: 20.75, policy: 41.5, baseline: 34.9}
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /waitlist:
+    post:
+      operationId: joinWaitlist
+      summary: Join the waitlist (called by the share service)
+      description: |
+        Saves an email when the app is at capacity. Validates the address
+        (simple regex + length < 254) and stores only `email`, `ip_hash` and
+        country. Rate limit: 5 per day per real IP. Called by the public
+        `share` service, never by browsers directly.
+      tags: [share]
+      parameters:
+        - $ref: "#/components/parameters/ClientIpRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WaitlistRequest"
+            example:
+              email: fan@example.com
+      responses:
+        "200":
+          description: Email added to the waitlist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              example:
+                message: You are on the waitlist. We will email you when a spot opens.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          description: 429 - more than 5 waitlist signups per IP per day.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: rate_limit_exceeded
+                message: You've reached the limit of 5 signups per day.
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Internal JSON counters
+      description: Ad-hoc business counters as plain JSON (no Prometheus/Grafana, by decision).
+      tags: [metrics]
+      responses:
+        "200":
+          description: Counters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsResponse"
+              example:
+                experiments_started: 1520
+                experiments_finished: 1180
+                experiments_abandoned: 64
+                shares_generated: 410
+                share_views_total: 2573
+                sensitivity_cache_hits: 8821
+                sensitivity_cache_misses: 654
+                png_cache_hits: 3120
+                png_cache_misses: 402
+                waitlist_signups: 97
+                capacity_503_total: 12
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    InternalKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Key
+      description: |
+        Service-to-service key (value of `API_INTERNAL_KEY`, generated with
+        `openssl rand -base64 32`). Required by **every** endpoint; 403 without
+        it. Only `app/` and `share/` know it; the API never leaves the private
+        network.
+    ResumeCode:
+      type: apiKey
+      in: header
+      name: X-Resume-Code
+      description: |
+        Per-experiment credential (22 chars base64url, stored as SHA-256 hash)
+        returned exactly once by `POST /experiments`. Required by every
+        endpoint under `/experiments/{id}/...` and by `/sensitivity`; 403 when
+        missing or wrong. The `experiment_id` alone is not a credential.
+
+  parameters:
+    ExperimentId:
+      name: id
+      in: path
+      required: true
+      description: Experiment UUID (also present in the URL as `?exp=`).
+      schema:
+        type: string
+        format: uuid
+    ShareToken:
+      name: token
+      in: path
+      required: true
+      description: 12-char base64url share token (72 bits, public, appears in share URLs).
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{12}$"
+    ClientIp:
+      name: X-Client-IP
+      in: header
+      required: false
+      description: |
+        Real client IP forwarded by `app/` or `share/` on every call (set by
+        Nginx from `CF-Connecting-IP`). Only accepted together with a valid
+        `X-Internal-Key`; hashed with `IP_HASH_SALT` and never stored or logged
+        in clear. Required in practice for endpoints with per-IP rate limits.
+      schema:
+        type: string
+    ClientIpRequired:
+      name: X-Client-IP
+      in: header
+      required: true
+      description: |
+        Real client IP forwarded by `app/` or `share/`. Required here because
+        this endpoint rate-limits per IP; rejected (403) without a valid
+        `X-Internal-Key`.
+      schema:
+        type: string
+    Device:
+      name: X-Device
+      in: header
+      required: false
+      description: Screen class set by the UI; `mobile` switches `/sensitivity` to a 30x30 grid.
+      schema:
+        type: string
+        enum: [mobile, desktop]
+    CfIpCountry:
+      name: CF-IPCountry
+      in: header
+      required: false
+      description: Two-letter country code set by Cloudflare; stored on the participant (never an IP).
+      schema:
+        type: string
+        minLength: 2
+        maxLength: 2
+
+  headers:
+    RetryAfter:
+      description: Seconds until the limit resets (midnight UTC).
+      schema:
+        type: integer
+    XRateLimitLimit:
+      description: Requests allowed inside the current window.
+      schema:
+        type: integer
+    XRateLimitRemaining:
+      description: Requests still allowed inside the current window.
+      schema:
+        type: integer
+    XRateLimitReset:
+      description: Unix timestamp (seconds) when the window resets.
+      schema:
+        type: integer
+
+  responses:
+    BadRequest:
+      description: 400 - payload failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: bad_request
+            message: The request payload is invalid.
+    Forbidden:
+      description: 403 - missing/invalid `X-Internal-Key`, or missing/invalid `X-Resume-Code` where required.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: forbidden
+            message: Invalid or missing X-Internal-Key header.
+    NotFound:
+      description: 404 - resource does not exist (or the share experiment is not finished).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: not_found
+            message: Not found.
+    Conflict:
+      description: 409 - state conflict (retry with a different payload, or finish/abandon twice).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: conflict
+            message: The experiment is not in a state that allows this operation.
+    UnprocessableEntity:
+      description: 422 - payload is syntactically fine but semantically invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: unprocessable_entity
+            message: The payload is semantically invalid.
+    RateLimited:
+      description: 429 - rate limit exceeded; clients must honor `Retry-After`.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: rate_limit_exceeded
+            message: Rate limit exceeded, please try again later.
+    InternalError:
+      description: 500 - unhandled server error (logged with stacktrace).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: internal_error
+            message: Internal server error.
+    ServiceUnavailable:
+      description: 503 - model not loaded, Postgres unavailable, or SMTP failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: service_unavailable
+            message: Service temporarily unavailable, please try again later.
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        error:
+          type: string
+          description: Stable machine-readable error code (snake_case).
+        message:
+          type: string
+          description: Human-readable message in English (shown to the user when present).
+      additionalProperties: false
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+      additionalProperties: false
+
+    Outcome:
+      type: string
+      enum:
+        - beat_model
+        - tied_model
+        - beat_baseline
+        - lost_to_baseline
+        - no_rides
+      description: |
+        Verdict computed **on the server** at `finish`, with this precedence:
+        no accepted rides -> no_rides; user wage > policy + 0.01 -> beat_model;
+        |user - policy| <= 0.01 -> tied_model; user > baseline ->
+        beat_baseline; otherwise -> lost_to_baseline. Never computed by the UI.
+
+    AcceptReject:
+      type: string
+      enum: [accept, reject]
+
+    HealthResponse:
+      type: object
+      required: [status, database, models]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        database:
+          type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [ok, error]
+            connections:
+              type: integer
+              description: Live pool size (0 when the database is down).
+        models:
+          type: object
+          required: [policy, start_validator, valid_hours]
+          properties:
+            policy:
+              type: boolean
+              description: AcceptRejectPolicyFitted.qs2 loaded and shared with mori.
+            start_validator:
+              type: boolean
+              description: DecisionTreeWfFitted.qs2 loaded.
+            valid_hours:
+              type: boolean
+              description: ValidHoursToStartWorking.qs2 loaded.
+            reference_distribution:
+              type: boolean
+              description: ReferenceDistribution.qs2 loaded (percentile at finish).
+        model_version:
+          type: string
+        app_version:
+          type: string
+
+    PredictRequest:
+      type: object
+      required: [pulocation_id, dolocation_id, trip_miles, trip_time_sec, driver_pay, request_datetime]
+      properties:
+        trip_id:
+          type: integer
+          format: int64
+          description: Dataset row id (NycTrips2024_sample_week.parquet).
+        pulocation_id:
+          type: integer
+          description: Pickup TLC zone id (raw model feature PULocationID).
+        dolocation_id:
+          type: integer
+          description: Drop-off TLC zone id (raw model feature DOLocationID).
+        trip_miles:
+          type: number
+        trip_time_sec:
+          type: integer
+          description: Trip duration in seconds (raw model feature trip_time).
+        driver_pay:
+          type: number
+          description: What the trip pays before tips (raw model feature driver_pay).
+        tips:
+          type: number
+        request_datetime:
+          type: string
+          description: ISO 8601 request time (raw model feature request_datetime).
+        hvfhs_license_num:
+          type: string
+          description: Raw model feature (e.g. HV0003 Uber, HV0002 Lyft).
+        company:
+          type: string
+          enum: [Lyft, Uber]
+
+    PredictResponse:
+      type: object
+      required: [accepted, probability]
+      properties:
+        accepted:
+          type: boolean
+          description: Policy decision; true when probability > 0.90 (fixed threshold).
+        probability:
+          type: number
+          description: P(high-value trip) from the XGBoost workflow, 0-1.
+
+    RecommendStartRequest:
+      type: object
+      required: [datetime, company]
+      properties:
+        datetime:
+          type: string
+          description: Proposed start (ISO 8601).
+        company:
+          type: string
+          enum: [Lyft, Uber]
+
+    RecommendStartResponse:
+      type: object
+      required: [company, recommended_datetime, hour, week_day]
+      properties:
+        company:
+          type: string
+        recommended_datetime:
+          type: string
+          description: Next valid start (ISO 8601) from the valid-hours lookup.
+        hour:
+          type: integer
+        week_day:
+          type: string
+
+    ValidateTripStartRequest:
+      type: object
+      required: [company, datetime, location_id]
+      properties:
+        company:
+          type: string
+          enum: [Lyft, Uber]
+        datetime:
+          type: string
+        location_id:
+          type: integer
+          description: Starting TLC zone id.
+
+    ValidateTripStartResponse:
+      type: object
+      required: [is_optimal]
+      properties:
+        is_optimal:
+          type: boolean
+        better_company:
+          type: string
+          enum: [Lyft, Uber]
+          description: Suggested company; null when is_optimal is true.
+        better_datetime:
+          type: string
+          description: Suggested start (ISO 8601); null when is_optimal is true.
+
+    HistoryPoint:
+      type: object
+      required: [step, user, policy, baseline]
+      description: Cumulative earnings after `step` decisions, for the three trajectories.
+      properties:
+        step:
+          type: integer
+        user:
+          type: number
+        policy:
+          type: number
+        baseline:
+          type: number
+
+    Trip:
+      type: object
+      required: [trip_id, pulocation_id, dolocation_id, miles, trip_time_sec, driver_pay, request_datetime, recommendation]
+      description: Next ride offered to the player (generated on the fly from the seed).
+      properties:
+        trip_id:
+          type: integer
+          format: int64
+        pulocation_id:
+          type: integer
+        dolocation_id:
+          type: integer
+        pickup_zone:
+          type: string
+          description: Human-readable zone name for the UI.
+        dropoff_zone:
+          type: string
+        miles:
+          type: number
+        trip_time_sec:
+          type: integer
+        driver_pay:
+          type: number
+        tips:
+          type: number
+        request_datetime:
+          type: string
+        recommendation:
+          $ref: "#/components/schemas/AcceptReject"
+        probability:
+          type: number
+          description: Model probability behind the recommendation.
+
+    ExperimentResult:
+      type: object
+      required: [final_user_wage, final_policy_wage, final_baseline_wage, pct_following_policy, outcome, user_percentile, trips_accepted, trips_rejected]
+      description: Final scores, computed exclusively at `finish`.
+      properties:
+        final_user_wage:
+          type: number
+          description: Wage of the player in USD/hour ((sum pay + tips) / shift hours, idle included, 30-min break excluded).
+        final_policy_wage:
+          type: number
+          description: Same formula for the always-follow-the-model trajectory.
+        final_baseline_wage:
+          type: number
+          description: Same formula for the accept-everything trajectory.
+        pct_following_policy:
+          type: number
+          description: Percentage of decisions that matched the model recommendation (0-100).
+        outcome:
+          $ref: "#/components/schemas/Outcome"
+        user_percentile:
+          type: number
+          description: Percentile of the user wage inside the company reference distribution (1,000 simulated model days).
+        trips_accepted:
+          type: integer
+        trips_rejected:
+          type: integer
+
+    DayState:
+      type: object
+      required: [experiment_id, status, clock, pending_hours, pct_following_policy, current_location_id, current_zone, history]
+      description: Live game state consumed by the Shiny UI after every action.
+      properties:
+        experiment_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [setup, in_progress, finished, abandoned]
+        clock:
+          type: string
+          description: Simulated clock as "YYYY-MM-DD HH:MM:SS" (UTC), break excluded.
+        pending_hours:
+          type: number
+          description: Hours left in the 8-hour shift.
+        pct_following_policy:
+          type: number
+        current_location_id:
+          type: integer
+          description: TLC zone id where the taxi currently is.
+        current_zone:
+          type: string
+        next_trip:
+          description: Next ride offered to the player; null once the experiment is finished.
+          oneOf:
+            - $ref: "#/components/schemas/Trip"
+            - type: "null"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryPoint"
+        result:
+          description: Null until the day is finished.
+          oneOf:
+            - $ref: "#/components/schemas/ExperimentResult"
+            - type: "null"
+
+    CreatedExperiment:
+      type: object
+      required: [experiment_id, resume_code, share_token, status, clock, pending_hours, pct_following_policy, current_location_id, current_zone, history]
+      description: |
+        Day state plus the credentials issued at creation. `resume_code` is
+        returned **exactly once** and never again; the client must store it
+        (localStorage / modal). `result` is null until the day is finished.
+      properties:
+        experiment_id:
+          type: string
+          format: uuid
+        resume_code:
+          type: string
+          description: One-time credential (22 chars base64url) for every /experiments/{id}/... call.
+        share_token:
+          type: string
+          description: Permanent public token (12 chars base64url) for share URLs.
+        status:
+          type: string
+          enum: [setup, in_progress, finished, abandoned]
+        clock:
+          type: string
+        pending_hours:
+          type: number
+        pct_following_policy:
+          type: number
+        current_location_id:
+          type: integer
+        current_zone:
+          type: string
+        next_trip:
+          description: Next ride offered to the player; null once the experiment is finished.
+          oneOf:
+            - $ref: "#/components/schemas/Trip"
+            - type: "null"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryPoint"
+        result:
+          description: Null until the day is finished.
+          oneOf:
+            - $ref: "#/components/schemas/ExperimentResult"
+            - type: "null"
+
+    Experiment:
+      type: object
+      required: [id, status, company, start_datetime, start_location_id, seed, seed_is_custom, model_version, app_version, created_at, updated_at, share_token]
+      description: Experiment record as stored in Postgres (no PII fields exposed).
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [setup, in_progress, finished, abandoned]
+        company:
+          type: string
+          enum: [Lyft, Uber]
+        start_datetime:
+          type: string
+        start_location_id:
+          type: integer
+        seed:
+          type: integer
+          format: int64
+        seed_is_custom:
+          type: boolean
+          description: True when the player edited the seed; the result is then marked "Custom seed - unofficial".
+        model_version:
+          type: string
+        app_version:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        finished_at:
+          type: [string, "null"]
+          description: Null until the experiment is finished.
+        share_token:
+          type: string
+        result:
+          description: Null until the day is finished.
+          oneOf:
+            - $ref: "#/components/schemas/ExperimentResult"
+            - type: "null"
+        feedback:
+          description: Null until feedback is submitted.
+          oneOf:
+            - type: object
+              required: [rating, public]
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                comment:
+                  type: string
+                public:
+                  type: boolean
+                  description: Consent to display the comment publicly (off by default).
+            - type: "null"
+
+    CreateExperimentRequest:
+      type: object
+      required: [company, start_datetime, start_location_id]
+      properties:
+        company:
+          type: string
+          enum: [Lyft, Uber]
+          description: Fixed for the whole day (all three trajectories share it).
+        start_datetime:
+          type: string
+          description: Shift start (ISO 8601).
+        start_location_id:
+          type: integer
+          description: Starting TLC zone id.
+        seed:
+          type: integer
+          format: int64
+          description: Optional advanced option; when sent, seed_is_custom becomes true and the result is unofficial. Random when omitted.
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Optional; lets the player recover previous days and receive the result card.
+        marketing_consent:
+          type: boolean
+          default: false
+          description: Separate, unchecked-by-default consent for commercial contact; never implied by email.
+
+    DecisionRequest:
+      type: object
+      required: [trip_id, accepted]
+      properties:
+        trip_id:
+          type: integer
+          format: int64
+          description: Must match the trip currently offered; otherwise 422.
+        accepted:
+          type: boolean
+
+    FeedbackRequest:
+      type: object
+      required: [rating]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+          maxLength: 2000
+        public:
+          type: boolean
+          default: false
+          description: Consent to show the comment publicly.
+
+    ShareEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Optional when it was already provided during Setup.
+
+    SensitivityRequest:
+      type: object
+      required: [experiment_id, trip_id]
+      properties:
+        experiment_id:
+          type: string
+          format: uuid
+        trip_id:
+          type: integer
+          format: int64
+        pickup_id:
+          type: integer
+          description: Alternative pickup zone; omit to keep the original.
+        dropoff_id:
+          type: integer
+          description: Alternative drop-off zone; omit to keep the original.
+        grid_size:
+          type: integer
+          default: 50
+          description: "Grid edge; 30 when the client sends X-Device: mobile."
+
+    SensitivityResponse:
+      type: object
+      required: [recommendation, meta, grid_original, grid_pu, grid_do]
+      description: Three decision grids plus display metadata for ggiraph.
+      properties:
+        recommendation:
+          $ref: "#/components/schemas/AcceptReject"
+        pickup_suggested:
+          type: integer
+          description: Pickup zone with high decision change; null when not applicable.
+        dropoff_suggested:
+          type: integer
+          description: Drop-off zone with high decision change; null when not applicable.
+        meta:
+          type: object
+          required: [threshold, original_label]
+          properties:
+            threshold:
+              type: number
+              description: Decision threshold in probability (0.90, fixed).
+            original_label:
+              type: string
+            pu_label:
+              type: string
+            do_label:
+              type: string
+            subtitle_html:
+              type: string
+            original_point:
+              type: object
+              required: [trip_time_sec, driver_pay]
+              properties:
+                trip_time_sec:
+                  type: integer
+                driver_pay:
+                  type: number
+        grid_original:
+          type: array
+          items:
+            $ref: "#/components/schemas/GridPoint"
+        grid_pu:
+          type: array
+          items:
+            $ref: "#/components/schemas/GridPoint"
+        grid_do:
+          type: array
+          items:
+            $ref: "#/components/schemas/GridPoint"
+
+    GridPoint:
+      type: object
+      required: [trip_time_sec, driver_pay, prob]
+      properties:
+        trip_time_sec:
+          type: integer
+        driver_pay:
+          type: number
+        prob:
+          type: number
+          description: Predicted P(high-value), 0-1.
+
+    TripsSampleResponse:
+      type: object
+      required: [trips]
+      properties:
+        trips:
+          type: array
+          items:
+            $ref: "#/components/schemas/Trip"
+
+    GeoJsonFeatureCollection:
+      type: object
+      required: [type, features]
+      description: Minimal GeoJSON FeatureCollection; one Feature per TLC zone with location_id and zone name.
+      properties:
+        type:
+          type: string
+          enum: [FeatureCollection]
+        features:
+          type: array
+          items:
+            type: object
+            required: [type, properties, geometry]
+            properties:
+              type:
+                type: string
+                enum: [Feature]
+              properties:
+                type: object
+                required: [location_id, zone]
+                properties:
+                  location_id:
+                    type: integer
+                  zone:
+                    type: string
+              geometry:
+                type: object
+                required: [type, coordinates]
+                properties:
+                  type:
+                    type: string
+                  coordinates: {}
+
+    ShareDataResponse:
+      type: object
+      required: [day_label, outcome, seed_is_custom, final_user_wage, final_policy_wage, final_baseline_wage, pct_following_policy, trips_accepted, trips_rejected, history]
+      description: |
+        Aggregated, PII-free result for the public share service. Never
+        contains `experiment_id` or emails; the visible identity is the
+        `day_label` built from the public share token.
+      properties:
+        day_label:
+          type: string
+          description: "Display identity, e.g. \"Day #aZ3kQ9\" (first 6 chars of share_token)."
+        outcome:
+          $ref: "#/components/schemas/Outcome"
+        seed_is_custom:
+          type: boolean
+          description: When true the PNG and HTML use the neutral wording plus "Custom seed - unofficial".
+        final_user_wage:
+          type: number
+        final_policy_wage:
+          type: number
+        final_baseline_wage:
+          type: number
+        user_percentile:
+          type: number
+        pct_following_policy:
+          type: number
+        trips_accepted:
+          type: integer
+        trips_rejected:
+          type: integer
+        label:
+          type: string
+          description: Big PNG label for the outcome (e.g. "I beat the Model!", "No rides, no pay").
+        share_text:
+          type: string
+          description: Default share copy for the outcome (editable by the user before posting).
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryPoint"
+
+    WaitlistRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Validated with a simple regex (no MX check).
+
+    MetricsResponse:
+      type: object
+      required: [experiments_started, experiments_finished, experiments_abandoned, shares_generated, share_views_total, sensitivity_cache_hits, sensitivity_cache_misses, png_cache_hits, png_cache_misses, waitlist_signups, capacity_503_total]
+      properties:
+        experiments_started:
+          type: integer
+        experiments_finished:
+          type: integer
+        experiments_abandoned:
+          type: integer
+        shares_generated:
+          type: integer
+        share_views_total:
+          type: integer
+        sensitivity_cache_hits:
+          type: integer
+        sensitivity_cache_misses:
+          type: integer
+        png_cache_hits:
+          type: integer
+        png_cache_misses:
+          type: integer
+        waitlist_signups:
+          type: integer
+        capacity_503_total:
+          type: integer

@@ -8,27 +8,9 @@ in
         # Normal shiny
         shiny
         bslib
-        mirai
-        golem
 
-        # Interactive plots
-        ggiraph
-        echarts4r
-        
-        # Creating table
-        reactable
-        reactablefmtr
-        
-        # Collecting data
-        shinybrowser
-        
-        # Working with html
-        htmltools
-        htmlwidgets
-        fontawesome
-        
-        # Adding CSS
-        # https://cran.r-project.org/web/packages//hover/
-        hover;
+        # Connecting to model API
+        httr2
+        mirai;
     };
   }

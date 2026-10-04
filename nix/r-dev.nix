@@ -5,6 +5,9 @@ in
     name = "r-dev-pkgs";
     paths = builtins.attrValues {
       inherit (pkgs.rPackages)
-        devtools;
+        testthat
+        plumber2
+        devtools
+        roxygen2;
     };
   }

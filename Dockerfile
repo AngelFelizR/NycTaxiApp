@@ -10,7 +10,7 @@
 # default.nix does auto-discover these files, but here the ordering
 # and separation are intentionally manual (per-layer caching).
 # If you add a new r-*.nix, add its corresponding layer here too
-# (Layer 13 will also pick it up automatically as a safety net).
+# (Layer 9 will also pick it up automatically as a safety net).
 
 FROM ubuntu:24.04
 
@@ -33,7 +33,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/
 
 RUN mkdir -p /etc/nix && \
     echo "sandbox = false" >> /etc/nix/nix.conf && \
-    echo "nix-path = nixpkgs=https://github.com/rstats-on-nix/nixpkgs/archive/2025-12-02.tar.gz" >> /etc/nix/nix.conf
+    echo "nix-path = nixpkgs=https://github.com/rstats-on-nix/nixpkgs/archive/2026-09-28.tar.gz" >> /etc/nix/nix.conf
 
 ENV PATH="${PATH}:/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin" \
     BASH_ENV=/nix/var/nix/profiles/default/etc/profile.d/nix.sh \
@@ -55,9 +55,9 @@ COPY nix/system.nix /root/nix/system.nix
 RUN nix-build /root/nix/system.nix -o /nix/profiles/system-packages && \
     nix-collect-garbage -d
 
-# ── Layer 6: core R / tidyverse-style packages ───────────────────────────────
-COPY nix/r-core.nix /root/nix/r-core.nix
-RUN nix-build /root/nix/r-core.nix -o /nix/profiles/r-core && \
+# ── Layer 6: Dev tools for package ───────────────────────────────────────────
+COPY nix/r-dev.nix /root/nix/r-dev.nix
+RUN nix-build /root/nix/r-dev.nix -o /nix/profiles/r-dev && \ 
     nix-collect-garbage -d
 
 # ── Layer 7: geo / spatial packages ──────────────────────────────────────────
@@ -65,32 +65,17 @@ COPY nix/r-geo.nix /root/nix/r-geo.nix
 RUN nix-build /root/nix/r-geo.nix -o /nix/profiles/r-geo && \
     nix-collect-garbage -d
 
-# ── Layer 8: ML / modelling packages ─────────────────────────────────────────
-COPY nix/r-ml.nix /root/nix/r-ml.nix
-RUN nix-build /root/nix/r-ml.nix -o /nix/profiles/r-ml && \
-    nix-collect-garbage -d
-
-# ── Layer 9: plotting packages ───────────────────────────────────────────────
+# ── Layer 8: plotting packages ───────────────────────────────────────────────
 COPY nix/r-plotting.nix /root/nix/r-plotting.nix
 RUN nix-build /root/nix/r-plotting.nix -o /nix/profiles/r-plotting && \
     nix-collect-garbage -d
 
-# ── Layer 10: Shiny app packages ─────────────────────────────────────────────
+# ── Layer 9: Shiny app packages ─────────────────────────────────────────────
 COPY nix/r-shiny.nix /root/nix/r-shiny.nix
 RUN nix-build /root/nix/r-shiny.nix -o /nix/profiles/r-shiny && \
     nix-collect-garbage -d
 
-# ── Layer 11: custom-built packages (pins, roxygen2) ─────────────────────────
-COPY nix/r-github.nix /root/nix/r-github.nix
-RUN nix-build /root/nix/r-github.nix -o /nix/profiles/r-github && \
-    nix-collect-garbage -d
-
-# ── Layer 12: dev-only R packages (golem, devtools) ──────────────────────────
-COPY nix/r-dev.nix /root/nix/r-dev.nix
-RUN nix-build /root/nix/r-dev.nix -o /nix/profiles/r-dev && \
-    nix-collect-garbage -d
-
-# ── Layer 13: realizar el shell completo (incluye stdenv toolchain) ─────────
+# ── Layer 10: realizar el shell completo (incluye stdenv toolchain) ─────────
 COPY default.nix /root/default.nix
 RUN nix-build /root/default.nix -A shell -o /nix/profiles/dev-shell && \
     nix-collect-garbage -d

@@ -25,4 +25,9 @@ Thumbs.db
 result
 *.lock
 
+# Secrets: never commit the real .env (see .env.example)
+.env
+.env.*
+!.env.example
+
 /.quarto/

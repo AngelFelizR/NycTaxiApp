@@ -1,0 +1,12 @@
+# Spectral configuration for the OpenAPI 3.1 contracts in this folder.
+# Run from the repository root (no Node required; the image is pulled on the
+# first run). Exit code 0 means no errors:
+#   docker run --rm -v "$PWD:/repo" -w /repo \
+#     stoplight/spectral lint contract/openapi.yaml contract/share.openapi.yaml \
+#     --ruleset contract/.spectral.yaml
+extends: spectral:oas
+rules:
+  # Spectral's schema validator targets OpenAPI 3.0 and flags valid 3.1
+  # constructs (2020-12 JSON Schema keywords, examples next to $ref, ...).
+  # Keep it informational so 0 errors stays achievable; fix real issues first.
+  oas3-schema: warn

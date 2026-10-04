@@ -1,0 +1,19 @@
+Package: taxiapp
+Title: Decide as Taxi Driver For A Day
+Version: 0.1.0
+Description: Thin Shiny client for a plumber2 API. The app only renders UI and
+    calls the API (httr2, executed in mirai daemons); all decisions live in the API.
+Depends:
+    R (>= 4.1.0)
+Imports:
+    shiny (>= 1.8.1),
+    bslib (>= 0.7.0),
+    leaflet,
+    ggplot2,
+    httr2 (>= 1.0.0),
+    mirai,
+    promises
+Suggests:
+    testthat (>= 3.0.0),
+    plumber2
+Config/testthat/edition: 3

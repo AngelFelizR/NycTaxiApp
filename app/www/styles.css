@@ -1,0 +1,9 @@
+.warn-msg { color: #d9534f; font-size: .8rem; margin: -.5rem 0 .75rem; }
+
+/* Red input while its warning message is visible (pure CSS, no JS; needs :has()) */
+.field:has(> [data-display-if]:not([style*="display: none"]):not([style*="display:none"])) .form-control,
+.field:has(> [data-display-if]:not([style*="display: none"]):not([style*="display:none"])) .form-select,
+.field:has(> [data-display-if]:not([style*="display: none"]):not([style*="display:none"])) .selectize-input {
+  background: #ffd6d6;
+  border-color: #d9534f;
+}
