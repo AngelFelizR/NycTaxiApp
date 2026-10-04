@@ -4,8 +4,12 @@ Este repo es el **monorepo** del "NYC Taxi Decision Simulator". El
 `04 - Documento Maestro de Decisiones del Proyecto.md` es la **fuente de verdad**
 y **no debe modificarse nunca**. Estructura destino (§1.3): `contract/`, `api/`,
 `app/`, `share/`, `infra/`, `tools/`, `integration/`, `nix/`, `docs/`,
-`.github/workflows/`. Hoy solo existe la UI Shiny en `app/`: api, share, infra,
-contrato OpenAPI, CI y `.env` están por construir.
+`.github/workflows/`.
+**Fase 0 hecha:** todas las carpetas existen (con `.gitkeep`), los dos
+contratos OpenAPI 3.1 están escritos y validados con Spectral (0 errores), y en
+la raíz hay `README.md`, `CHANGELOG.md`, `LICENSE` (MIT), `.env.example` y
+`AGENTS.md`. **Pendiente:** el código de `api/`, `share/`, `infra/`, el CI, las
+imágenes de despliegue y el `.env` real (§14, fases 1-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -15,11 +19,14 @@ contrato OpenAPI, CI y `.env` están por construir.
   (4 ficheros: `api/` y `app/`, dev y prod) **solo para probarlo de forma
   individual**. Los de la raíz siguen siendo los canónicos de despliegue; nada de
   producción depende de los de las subcarpetas.
-- **Nix (§1.2.3 + decisión):** los módulos viven en `nix/` de la raíz:
-  `nix/pkgs-api.nix` y `nix/pkgs-app.nix` con **fechas de nixpkgs distintas**
-  (API y UI se pinan por separado), más `nix/r-api.nix`, `nix/r-shiny.nix`, etc.
+- **Nix (§1.2.3 + decisión):** los módulos viven en `nix/` de la raíz y
   `default.nix` raíz los importa a todos; los `default.*.nix` de cada servicio
-  importan solo los suyos.
+  importan solo los suyos. **Meta todavía no creada:** `nix/pkgs-api.nix` y
+  `nix/pkgs-app.nix` con **fechas de nixpkgs distintas** (API y UI se pinan por
+  separado) más `nix/r-api.nix`, etc. — hoy solo existen `nix/pkgs.nix`,
+  `nix/r-dev.nix`, `nix/r-geo.nix`, `nix/r-plotting.nix`, `nix/r-shiny.nix` y
+  `nix/system.nix` (un único pin). Crearlos al separar los pins (fase 1 o 7);
+  no reescribir los ficheros actuales sin decidirlo antes.
 - Cambiar un pin invalida solo las capas Docker de ese servicio; cambiar
   `nix/pkgs*.nix` afecta a las capas que lo usen — hacerlo conscientemente.
 - Un solo semver y `CHANGELOG.md`; CI con `paths:` por servicio (§8.6).
@@ -29,6 +36,24 @@ contrato OpenAPI, CI y `.env` están por construir.
   `X-Client-IP` solo se acepta junto con la clave válida. CORS limitado (dominio
   propio en prod, `localhost` en dev, bloquear `Origin: null`). Los clientes
   autorizados son `app/` y `share/`.
+
+## Contratos OpenAPI (`contract/`)
+- `contract/openapi.yaml` → API privada (OpenAPI 3.1, 18 endpoints §5.2,
+  securitySchemes `InternalKey` + `ResumeCode`, `X-Client-IP`, ejemplos JSON).
+- `contract/share.openapi.yaml` → servicio público `share` (3 rutas:
+  `GET /share/{token}`, `GET /share/{token}.png`, `POST /waitlist`,
+  `security: []`). El enum `outcome` se define en el contrato privado.
+- `contract/.spectral.yaml` → `extends: spectral:oas` con `oas3-schema: warn`
+  (Spectral valida contra OpenAPI 3.0 y falsa con construcciones 3.1).
+- **Validar (host, sin Node; criterio: 0 errores):**
+  `docker run --rm -v "$PWD:/repo" -w /repo stoplight/spectral lint contract/openapi.yaml contract/share.openapi.yaml --ruleset contract/.spectral.yaml`
+  La imagen es `stoplight/spectral` (**no** `stoplightio/spectral`, no existe).
+- Convenciones aprendidas al escribirlos: `example` solo a nivel media-type
+  (nunca dentro de un schema), sin `nullable` (usar `type: [string, "null"]` o
+  `oneOf` + `type: "null"`), comillas YAML si un scalar plano contiene `: `,
+  `operationId` únicos y parámetros de path declarados a nivel path-item.
+- Toda la superficie pública se documenta aquí; `app/` y `share/` son los únicos
+  clientes de la API y ningún endpoint es accesible desde Internet.
 
 ## Tests: tres paquetes de R separados
 - `app/` → tests de **UI** (unitarios de módulos + `shinytest2`).
@@ -42,7 +67,8 @@ contrato OpenAPI, CI y `.env` están por construir.
 `app/` contiene la app Shiny completa: `app.R`, `R/`, `www/`, `tests/`, `dev/`
 (mock de la API), `DESCRIPTION`. En la raíz solo viven lo compartido:
 `default.nix`, `nix/`, `Dockerfile`, `docker-compose.yml`, `setup.sh`, `.envrc`,
-`.Rprofile`, docs y el contrato.
+`.Rprofile`, `README.md`, `CHANGELOG.md`, `LICENSE`, `.env.example`, docs y
+`contract/`.
 - `app/tests/testthat/helper-load.R` usa `file.path("..", "..")` → resuelve contra
   `app/`; ejecutar los tests con cwd = `app/`.
 - `NAMESPACE`, `man/` y `.Rbuildignore` (restos de la plantilla golem) fueron
@@ -88,15 +114,20 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - Todo el HTTP pasa por `api_async()` (mirai) + `ExtendedTask` +
   `bind_task_button`; resultados con `task_result()`. Nunca httr2 directo en un
   observer. URL base: `TAXI_API_URL` (defecto `http://127.0.0.1:8000`).
-- `API_CONTRACT.md` = contrato de las 5 rutas mínimas que consume la app hoy; el
-  catálogo completo (18 endpoints, `X-Internal-Key`, rate limit) está en §5.2.
-  Antes de implementar, confirmar contra el documento maestro.
+- `API_CONTRACT.md` = contrato de las 5 rutas mínimas que consume la app hoy,
+  marcado como **transitorio** ("Status: transitional"): la UI todavía no habla
+  con los 18 endpoints reales. El catálogo completo (18 endpoints,
+  `X-Internal-Key`, rate limit) está en §5.2 y en `contract/openapi.yaml`.
 
 ## Fuente de verdad y prioridad entre documentos
 - **Documento maestro = decisiones de arquitectura; no se edita.** Si el código
   actual diverge del doc, el doc marca la meta y el código el estado actual:
   anotar la diferencia, nunca "corregir" el documento.
-- `API_CONTRACT.md` gobierna el contrato HTTP vigente de la UI.
+- `contract/openapi.yaml` + `contract/share.openapi.yaml` = contrato HTTP
+  **autoritativo** (meta de las fases 4-6); toda implementación nueva se
+  contrasta aquí y se revalida con Spectral (0 errores).
+- `API_CONTRACT.md` = contrato HTTP **vigente** de la UI (transitorio, 5 rutas);
+  se retira cuando la UI use los endpoints reales.
 - `docs/REPO_DECISION.md` = ADR monorepo vs. repos separados.
 
 ## Idioma
