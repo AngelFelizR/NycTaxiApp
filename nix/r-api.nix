@@ -38,6 +38,9 @@ in
       DBI
       RPostgres
 
+      # Redis (sensitivity cache; rate limits and counters from phase 3 on)
+      redux
+
       # Hashing (ip_hash, resume_code)
       digest
 
@@ -61,6 +64,9 @@ in
       lubridate
       rlang
       data_table
+      # Trip dataset lookup for /sensitivity and /trips/sample
+      # (NycTrips2024_sample_week.parquet)
+      nanoparquet
 
       # Recipe steps used by the fitted models (step_downsample)
       themis

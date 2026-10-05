@@ -40,20 +40,27 @@ suppressPackageStartupMessages({
   library(timeDate)
   library(tailor)
   library(ggplot2)
+  # Trip dataset (phase 2) and the Redis cache
+  library(nanoparquet)
+  library(redux)
 })
 
 for (rel in c(
   "R/db/pool.R",
+  "R/db/redis.R",
+  "R/data/trips.R",
   "R/ml/load_model.R",
   "R/ml/perf.R",
   "R/ml/predict.R",
   "R/ml/recommend.R",
+  "R/ml/sensitivity.R",
   "R/middleware/internal_auth.R",
   "R/middleware/cors.R",
   "R/endpoints/health.R",
   "R/endpoints/predict.R",
   "R/endpoints/recommend_start.R",
   "R/endpoints/validate_trip_start.R",
+  "R/endpoints/sensitivity.R",
   "R/endpoints/not_found.R"
 )) {
   source(file.path(root, "api", rel))
@@ -78,6 +85,19 @@ tryCatch(
   }
 )
 model_state$pool <- create_db_pool()
+
+# Phase 2: trip dataset + zone shapes (~300MB) and a Redis ping, both logged.
+# A missing /data mount or a down Redis only disables /sensitivity caching;
+# the API still starts (the handler answers 503/uncached accordingly).
+tryCatch(
+  if (!load_trip_data()) {
+    message("trip data unavailable under ", data_dir(),
+            " (/sensitivity will answer 503)")
+  },
+  error = function(e) message("trip data loading failed: ", conditionMessage(e))
+)
+cat("redis:", if (redis_available()) "ok" else "unavailable", "\n",
+    file = stderr())
 
 # Warm-up: the first request of a fresh process pays for mapping the shared
 # policy segment and for the lazy per-process caches (holiday calendars,
@@ -140,6 +160,10 @@ api <- plumber2::api_post(
 )
 api <- plumber2::api_post(
   api, "/validate-trip-start", validate_trip_start_handler,
+  serializers = js, parsers = pj
+)
+api <- plumber2::api_post(
+  api, "/sensitivity", sensitivity_handler,
   serializers = js, parsers = pj
 )
 api <- plumber2::api_any(api, "/*", not_found_handler, serializers = js)

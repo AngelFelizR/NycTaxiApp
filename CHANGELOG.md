@@ -28,6 +28,15 @@ service at once.
 - `api/tests/` (testthat, 137 assertions) and `api/dev/` (`smoke.sh`,
   `check_syntax.R`); test infrastructure decision in
   `docs/decisions/0001-api-tests-use-fixed-postgres.md`.
+- Phase 2 sensitivity (`POST /sensitivity`): ports the prototype decision
+  grid to the API — hardest-zone auto-selection (Manhattan/Brooklyn/Queens
+  subset), three 50x50 grids (30x30 with `X-Device: mobile`), suggestion
+  metadata and always-on timing logs — backed by a `redis:7` service
+  (`sens:{experiment_id}:{trip_id}:{pu}:{do}`, TTL 1h, fail-open); reads the
+  real week sample via `nanoparquet` (mounted at `/data`). Hit ~0.34 s
+  (< 500 ms), cold ~0.9 s (< 2.5 s), RSS ~974 MB (budget 1.2 GB);
+  213 API test assertions including Redis round-trip identity checks; cache
+  semantics decision in `docs/decisions/0002-sensitivity-redis-cache.md`.
 
 ### Changed
 

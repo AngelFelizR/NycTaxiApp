@@ -16,6 +16,8 @@ services:
       - .:/root/NycTaxiApp
       # Models are never baked into the image (section 4.5); read-only mount.
       - ${MODELS_DIR:?Set MODELS_DIR in .env}:/models:ro
+      # Trip dataset and zone shapes (section 15); read-only, same rule.
+      - ${DATA_DIR:?Set DATA_DIR in .env}:/data:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,6 +39,23 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nyctaxi} -d ${POSTGRES_DB:-nyctaxi}"]
       interval: 5s
       timeout: 5s
+      retries: 10
+    networks:
+      - nyctaxi_dev_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: nyc-taxi-redis
+    # Sensitivity cache (1h TTL); phase 3 adds rate limits and counters.
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      # Dev convenience only (redis-cli from the host); production compose
+      # (phase 7) keeps Redis on the private data network.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 10
     networks:
       - nyctaxi_dev_net

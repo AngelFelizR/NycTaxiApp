@@ -8,8 +8,11 @@ y **no debe modificarse nunca**. Estructura destino (§1.3): `contract/`, `api/`
 **Fase 0 hecha:** todas las carpetas existen (con `.gitkeep`), los dos
 contratos OpenAPI 3.1 están escritos y validados con Spectral (0 errores), y en
 la raíz hay `README.md`, `CHANGELOG.md`, `LICENSE` (MIT), `.env.example` y
-`AGENTS.md`. **Pendiente:** el código de `api/`, `share/`, `infra/`, el CI, las
-imágenes de despliegue y el `.env` real (§14, fases 1-9).
+`AGENTS.md`. **Fases 1 y 2 hechas:** la API (`api/`) tiene `GET /health`,
+`POST /predict`, `POST /recommend-start`, `POST /validate-trip-start` y
+`POST /sensitivity` (+ caché Redis), con tests y smoke verdes. **Pendiente:**
+`share/`, `infra/`, el CI, las imágenes de despliegue y el `.env` real
+(§14, fases 3-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -21,12 +24,13 @@ imágenes de despliegue y el `.env` real (§14, fases 1-9).
   producción depende de los de las subcarpetas.
 - **Nix (§1.2.3 + decisión):** los módulos viven en `nix/` de la raíz y
   `default.nix` raíz los importa a todos; los `default.*.nix` de cada servicio
-  importan solo los suyos. **Meta todavía no creada:** `nix/pkgs-api.nix` y
-  `nix/pkgs-app.nix` con **fechas de nixpkgs distintas** (API y UI se pinan por
-  separado) más `nix/r-api.nix`, etc. — hoy solo existen `nix/pkgs.nix`,
-  `nix/r-dev.nix`, `nix/r-geo.nix`, `nix/r-plotting.nix`, `nix/r-shiny.nix` y
-  `nix/system.nix` (un único pin). Crearlos al separar los pins (fase 1 o 7);
-  no reescribir los ficheros actuales sin decidirlo antes.
+  importan solo los suyos. **Pins separados para la API:** ya existen
+  `nix/pkgs-api.nix` (nixpkgs **2025-12-02**, R 4.5.2) y `nix/r-api.nix` —
+  consumidos por `api/default.dev.nix` / `api/default.prod.nix`. **Todavía no
+  creados:** `nix/pkgs-app.nix` / `nix/r-app.nix` (UI): hoy la raíz usa un único
+  pin en `nix/pkgs.nix` (+ `r-dev.nix`, `r-geo.nix`, `r-plotting.nix`,
+  `r-shiny.nix`, `system.nix`, pin 2026-09-28). Separarlos al tocar la UI
+  (fase 7); no reescribir los ficheros actuales sin decidirlo antes.
 - Cambiar un pin invalida solo las capas Docker de ese servicio; cambiar
   `nix/pkgs*.nix` afecta a las capas que lo usen — hacerlo conscientemente.
 - Un solo semver y `CHANGELOG.md`; CI con `paths:` por servicio (§8.6).
@@ -57,7 +61,9 @@ imágenes de despliegue y el `.env` real (§14, fases 1-9).
 
 ## Tests: tres paquetes de R separados
 - `app/` → tests de **UI** (unitarios de módulos + `shinytest2`).
-- `api/` → tests de la **API** (`testthat` + `testcontainers` con Postgres efímero).
+- `api/` → tests de la **API** (`testthat` con el **Postgres fijo del compose**
+  raíz, no testcontainers — `docs/decisions/0001-*`), Redis real para el
+  caché de `/sensitivity` (se salta si no responde).
 - `integration/` en la raíz → paquete R propio de tests de **integración** API↔UI
   (extensión al árbol §1.3; el doc solo contempla `test-contract`, `test-api`,
   `test-shiny`, `test-share` en el CI — añadir `test-integration` al crear el CI).
@@ -83,6 +89,21 @@ imágenes de despliegue y el `.env` real (§14, fases 1-9).
   y `R/utils.R` a mano.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - Tests de API sin servidor: `httr2::with_mocked_responses()` (`test-api_client.R`).
+- Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
+  `Rscript tests/testthat.R` (213 assertions; Postgres y Redis reales del
+  compose raíz — levantar `docker compose up -d` antes).
+- Smoke de la API (contenedor): `bash api/dev/smoke.sh` (28 casos con timings;
+  sensibilidad cold/hit/mobile incluidos).
+- Reiniciar la API (contenedor): matar con
+  `pkill -f "file=api/plumb[e]r"` (el corchete evita que el pkill mate al
+  propio shell que lo invoca; el proceso real es
+  `R --file=api/plumber.R`, no `Rscript ...`) y relanzar con
+  `(nohup nix-shell api/default.dev.nix --run "Rscript api/plumber.R" > /root/api.log 2>&1 &)`
+  desde la raíz del repo. El log (`/root/api.log`) incluye los timings de
+  `/sensitivity`.
+- Datos y Redis: el compose monta `${DATA_DIR}:/data:ro` (parquet de la semana
+  + `ZonesShapes.qs2`, `DATA_DIR` en `.env`) y levanta `redis:7`
+  (`nyctaxi-redis`); la API lee `DATA_DIR` y `REDIS_HOST`.
 - Stub local de la API: `Rscript dev/run_mock_api.R` (plumber2, puerto 8000);
   escrito contra la sintaxis de anotaciones de plumber2 y **nunca ejecutado**.
 - Contenedor de desarrollo (cwd = raíz): `./setup.sh` (`-np` para no hacer pull).
@@ -102,9 +123,9 @@ Para reevaluar o validar cualquier código R, siempre este flujo:
    - Por subcarpeta: `nix-shell api/default.dev.nix` · `nix-shell app/default.dev.nix`
      (variantes prod análogas). Con el pin de nixpkgs correspondiente; el primero
      que se use puede descargar el tarball (la imagen solo hornea el pin raíz).
-5. **Validar dentro de ese shell:** `Rscript tests/testthat.R` (en `app/`), el
-   mock API, o cualquier chequeo de sintaxis/cargas. Si R falla aquí o el shell no
-   levanta, el problema es del entorno Nix, no del código.
+5. **Validar dentro de ese shell:** `Rscript tests/testthat.R` (en `app/` o en
+   `api/`), el mock API, o cualquier chequeo de sintaxis/cargas. Si R falla aquí
+   o el shell no levanta, el problema es del entorno Nix, no del código.
 
 Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar código.
 

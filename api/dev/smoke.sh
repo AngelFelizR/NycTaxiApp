@@ -40,7 +40,7 @@ echo "== 16. CORS Origin: null blocked =="
 curl -s -o /dev/null -D /tmp/h16 -X OPTIONS $B/predict -H 'Origin: null' -H 'Access-Control-Request-Method: POST'; grep -ci 'access-control-allow-origin' /tmp/h16 || echo "no-allow-header (ok)"
 echo "== 17. health after traffic =="
 show "$(curl -s -o /tmp/r17 -w '%{http_code}' -H "X-Internal-Key: $KEY" $B/health)" "$(cat /tmp/r17)"
-grep VmRSS /proc/$(pgrep -f "Rscript api/plumb" | head -1)/status
+grep VmRSS /proc/$(pgrep -f "file=api/plumber" | head -1)/status
 echo "== 18. predict warm x3 =="
 for i in 1 2 3; do
   curl -s -o /tmp/r18 -w "t=%{time_total} " -X POST $B/predict -H "X-Internal-Key: $KEY" -H 'Content-Type: application/json' -d "$PAYLOAD"
@@ -52,6 +52,21 @@ echo "== 20. POST with text/plain =="
 show "$(curl -s -o /tmp/r20 -w '%{http_code}' -X POST $B/predict -H "X-Internal-Key: $KEY" -H 'Content-Type: text/plain' -d 'x=1')" "$(cat /tmp/r20)"
 echo "== 21. validate optimal JSON (no nulls) =="
 show "$(curl -s -o /tmp/r21 -w '%{http_code}' -X POST $B/validate-trip-start -H "X-Internal-Key: $KEY" -H 'Content-Type: application/json' -d '{"company":"Uber","datetime":"2025-01-05T00:00:00Z","location_id":61}')" "$(cat /tmp/r21)"
-echo "== 22. RSS =="
+echo "== 22. sensitivity sin X-Client-IP =="
+show "$(curl -s -o /tmp/r22 -w '%{http_code}' -X POST $B/sensitivity -H "X-Internal-Key: $KEY" -H 'Content-Type: application/json' -d '{"experiment_id":"3f2504e0-4f89-11d3-9a0c-0305e82c3301","trip_id":87713555}')" "$(cat /tmp/r22)"
+# Run-unique experiment_id so case 23 is a genuine cold miss (same UUID would
+# reuse the value another run left in Redis).
+SP="{\"experiment_id\":\"$(printf '00000000-0000-4000-8000-%012d' $(date +%s))\",\"trip_id\":87713555}"
+echo "== 23. sensitivity cold (grid 50x50) =="
+show "$(curl -s -o /tmp/r23 -w '%{http_code} t=%{time_total}s' -X POST $B/sensitivity -H "X-Internal-Key: $KEY" -H 'X-Client-IP: 1.2.3.4' -H 'Content-Type: application/json' -d "$SP")" "$(head -c 300 /tmp/r23)"
+echo "== 24. sensitivity hit (caché Redis) =="
+show "$(curl -s -o /tmp/r24 -w '%{http_code} t=%{time_total}s' -X POST $B/sensitivity -H "X-Internal-Key: $KEY" -H 'X-Client-IP: 1.2.3.4' -H 'Content-Type: application/json' -d "$SP")" "$(cmp -s /tmp/r23 /tmp/r24 && echo 'body identical to cold' || echo 'BODY DIFFERS')"
+echo "== 25. sensitivity mobile (grid 30x30) =="
+show "$(curl -s -o /tmp/r25 -w '%{http_code} t=%{time_total}s' -X POST $B/sensitivity -H "X-Internal-Key: $KEY" -H 'X-Client-IP: 1.2.3.4' -H 'X-Device: mobile' -H 'Content-Type: application/json' -d "$SP")" "$(python3 -c "import json;d=json.load(open('/tmp/r25'));print(len(d['grid_original']),'rows (900 expected)')")"
+echo "== 26. sensitivity zonas explícitas (sugerencia null) =="
+show "$(curl -s -o /tmp/r26 -w '%{http_code} t=%{time_total}s' -X POST $B/sensitivity -H "X-Internal-Key: $KEY" -H 'X-Client-IP: 1.2.3.4' -H 'Content-Type: application/json' -d '{"experiment_id":"3f2504e0-4f89-11d3-9a0c-0305e82c3301","trip_id":87713555,"pickup_id":132,"dropoff_id":144}')" "$(python3 -c "import json;d=json.load(open('/tmp/r26'));print('suggested:',d['pickup_suggested'],d['dropoff_suggested'],'| pu_label:',d['meta']['pu_label'])")"
+echo "== 27. sensitivity trip inexistente =="
+show "$(curl -s -o /tmp/r27 -w '%{http_code}' -X POST $B/sensitivity -H "X-Internal-Key: $KEY" -H 'X-Client-IP: 1.2.3.4' -H 'Content-Type: application/json' -d '{"experiment_id":"3f2504e0-4f89-11d3-9a0c-0305e82c3301","trip_id":1}')" "$(cat /tmp/r27)"
+echo "== 28. RSS =="
 rpid=$(pgrep -f "file=api/plumber" | head -1)
 grep -E "VmRSS" /proc/$rpid/status
