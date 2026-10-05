@@ -10,9 +10,12 @@ contratos OpenAPI 3.1 están escritos y validados con Spectral (0 errores), y en
 la raíz hay `README.md`, `CHANGELOG.md`, `LICENSE` (MIT), `.env.example` y
 `AGENTS.md`. **Fases 1 y 2 hechas:** la API (`api/`) tiene `GET /health`,
 `POST /predict`, `POST /recommend-start`, `POST /validate-trip-start` y
-`POST /sensitivity` (+ caché Redis), con tests y smoke verdes. **Pendiente:**
-`share/`, `infra/`, el CI, las imágenes de despliegue y el `.env` real
-(§14, fases 3-9).
+`POST /sensitivity` (+ caché Redis), con tests y smoke verdes. El `.env` real
+ya existe (raíz, gitignored) con `MODELS_DIR` y `DATA_DIR` apuntando a
+`~/nyctaxi/{models,data}`. **Pendiente:** `share/`, `infra/`, el CI, las
+imágenes de despliegue (§14, fases 3-9); la **Fase 3 está empezada**
+(`api/migrations/001_init.sql` ya aplicado al Postgres del compose, aún sin
+commit; `trip_columns()` ya incluye `wav_match_flag`).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -150,6 +153,27 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - `API_CONTRACT.md` = contrato HTTP **vigente** de la UI (transitorio, 5 rutas);
   se retira cuando la UI use los endpoints reales.
 - `docs/REPO_DECISION.md` = ADR monorepo vs. repos separados.
+
+## Repositorio hermano `~/r-projects/NycTaxi` (referencia, solo lectura)
+Es el **prototipo original** (paquete R + artículos Quarto) del que este
+monorepo porta el código. Úsalo para leer/copiar, **nunca para editarlo** y
+**nunca como dependencia** (no aparece en ningún `DESCRIPTION`, `default.nix`
+ni Dockerfile de aquí).
+- **Fase 3 (portar):** `R/simulate_trips.R` → `simulate_trips()` de la API
+  (§3 del doc maestro: duración 8h+30 min, viajes on-the-fly, semilla,
+  regla WAV `wav_match_flag`) · `R/add_take_current_trip.R` → reglas de
+  decisión (`performance_per_hour`, `percentile_75_performance`) ·
+  `tests/testthat/test-simulate_trips.R` → base de los tests del port.
+- **Fase 2 (ya portada):** `select_zone_with_high_change()` y
+  `plot_decision_boundary()` viven inline en
+  `investigation-phases/12-shiny-app.qmd` (origen de `/sensitivity`).
+- **Fase 9:** `investigation-phases/12-shiny-app.qmd` (24 KB, ya escrito) es
+  el artículo candidato a publicar en `angelfelizr.github.io/NycTaxi/`.
+- **Prohibido usar** `~/r-projects/NycTaxiPins` y
+  `~/r-projects/NycTaxiBigFiles`: no son inputs de este proyecto en runtime,
+  build ni tests. Los únicos datos/inputs son `MODELS_DIR` y `DATA_DIR`
+  (§15, descargados del release `v0.0.1-data`). Que el compose de ese repo
+  monte `../NycTaxiApp` es particularidad suya, no una dependencia nuestra.
 
 ## Idioma
 - **Todos los archivos nuevos se escriben en inglés** (código, docs, ADRs, CI).
