@@ -1,3 +1,6 @@
+# Development compose (dev container + local PostgreSQL).
+# This is NOT the deployment compose: phase 7 writes the canonical one with
+# the three networks and resource limits of section 1.0/1.1 of the master doc.
 services:
   nyc-taxi-app:
     build:
@@ -8,3 +11,35 @@ services:
       - "2222:22"
     volumes:
       - .:/root/NycTaxiApp
+      # Models are never baked into the image (section 4.5); read-only mount.
+      - ${MODELS_DIR:?Set MODELS_DIR in .env}:/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nyctaxi_dev_net
+
+  postgres:
+    image: postgres:17
+    container_name: nyc-taxi-postgres
+    env_file:
+      - .env
+    ports:
+      # Dev convenience only (psql from the host). Section 9.3 forbids
+      # publishing Postgres in production; the deployment compose won't.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nyctaxi} -d ${POSTGRES_DB:-nyctaxi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - nyctaxi_dev_net
+
+volumes:
+  pgdata:
+
+networks:
+  nyctaxi_dev_net:
