@@ -75,6 +75,21 @@ COPY nix/r-shiny.nix /root/nix/r-shiny.nix
 RUN nix-build /root/nix/r-shiny.nix -o /nix/profiles/r-shiny && \
     nix-collect-garbage -d
 
+# ── Layer 9a: binary cache for R packages (rstats-on-nix Cachix) ────────────
+# Without it every new R package would compile from source (very slow).
+# Placed before the R layers so it only invalidates them, not layers 1-9.
+RUN echo "substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org" >> /etc/nix/nix.conf && \
+    echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=" >> /etc/nix/nix.conf
+
+# ── Layer 9b: API packages (plumber2, models, Postgres) ─────────────────────
+# r-api.nix is built against nix/pkgs-api.nix (2025-12-02 pin) and is NOT part
+# of the root shell (default.nix filters it out); building it here keeps API
+# dependency changes on their own cache layer.
+COPY nix/pkgs-api.nix /root/nix/pkgs-api.nix
+COPY nix/r-api.nix /root/nix/r-api.nix
+RUN nix-build /root/nix/r-api.nix -o /nix/profiles/r-api && \
+    nix-collect-garbage -d
+
 # ── Layer 10: realizar el shell completo (incluye stdenv toolchain) ─────────
 COPY default.nix /root/default.nix
 RUN nix-build /root/default.nix -A shell -o /nix/profiles/dev-shell && \

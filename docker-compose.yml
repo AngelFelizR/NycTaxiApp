@@ -9,6 +9,9 @@ services:
     container_name: nyc-taxi-app
     ports:
       - "2222:22"
+    # mori mmaps the fitted policy into /dev/shm (119 MB after quosure
+    # sanitising); Docker's default 64 MB would fail with ENOSPC.
+    shm_size: "2g"
     volumes:
       - .:/root/NycTaxiApp
       # Models are never baked into the image (section 4.5); read-only mount.
@@ -20,7 +23,7 @@ services:
       - nyctaxi_dev_net
 
   postgres:
-    image: postgres:17
+    image: postgres:16-alpine
     container_name: nyc-taxi-postgres
     env_file:
       - .env

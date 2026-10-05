@@ -8,8 +8,16 @@ let
 
   dirEntries = builtins.readDir ./nix;
 
+  # r-api.nix is intentionally NOT part of this shell: it is pinned to
+  # nix/pkgs-api.nix (2025-12-02 / R 4.5.2, the training environment) and
+  # mixing its libraries here would put R-4.5.2-compiled packages in front of
+  # this shell's R 4.6.1 ones (R_LIBS_SITE is ordered by file name). The API
+  # env is consumed by Dockerfile layer 9b and api/default.dev.nix only.
   rModuleFiles = builtins.filter
-    (name: pkgs.lib.hasPrefix "r-" name && pkgs.lib.hasSuffix ".nix" name)
+    (name:
+      pkgs.lib.hasPrefix "r-" name &&
+      pkgs.lib.hasSuffix ".nix" name &&
+      name != "r-api.nix")
     (builtins.attrNames dirEntries);
 
   rModuleList = map (file: import (./nix + "/${file}")) rModuleFiles;
