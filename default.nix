@@ -37,6 +37,13 @@ let
     LC_MEASUREMENT = "en_US.UTF-8";
     FONTCONFIG_FILE = "${pkgs.fontconfig.out}/etc/fonts/fonts.conf";
     FONTCONFIG_PATH = "${pkgs.fontconfig.out}/etc/fonts/";
+    # fork()-safe: same reason as in api/default.dev.nix -- libgomp reads
+    # OMP_NUM_THREADS when R starts, so a process that will fork() (the API's
+    # async create) must inherit it from the shell rather than from
+    # Sys.setenv(), which would be too late.
+    OMP_NUM_THREADS = "1";
+    OPENBLAS_NUM_THREADS = "1";
+    VECLIB_MAXIMUM_THREADS = "1";
     shellHook = ''
       export XDG_DATA_DIRS="${pkgs.dejavu_fonts}/share:${pkgs.freefont_ttf}/share:$XDG_DATA_DIRS"
       fc-cache -f 2>/dev/null || true

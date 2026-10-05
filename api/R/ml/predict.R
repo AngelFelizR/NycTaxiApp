@@ -1,6 +1,11 @@
 # Model inference used by POST /predict and POST /validate-trip-start.
 # Frame layouts mirror the training recipes (sections 4.1/4.2).
 
+# Fixed policy threshold (section 4.1): P(high-value) > 0.90 is the accept
+# rule everywhere -- /predict, the simulated policy trajectory and the
+# baseline's model recommendations.
+policy_threshold <- 0.90
+
 # Accept/reject policy (AcceptRejectPolicyFitted): returns P(high-value).
 policy_probability <- function(frame) {
   workflow <- policy_workflow()

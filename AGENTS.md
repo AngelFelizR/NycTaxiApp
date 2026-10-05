@@ -12,10 +12,13 @@ la raíz hay `README.md`, `CHANGELOG.md`, `LICENSE` (MIT), `.env.example` y
 `POST /predict`, `POST /recommend-start`, `POST /validate-trip-start` y
 `POST /sensitivity` (+ caché Redis), con tests y smoke verdes. El `.env` real
 ya existe (raíz, gitignored) con `MODELS_DIR` y `DATA_DIR` apuntando a
-`~/nyctaxi/{models,data}`. **Pendiente:** `share/`, `infra/`, el CI, las
-imágenes de despliegue (§14, fases 3-9); la **Fase 3 está empezada**
-(`api/migrations/001_init.sql` ya aplicado al Postgres del compose, aún sin
-commit; `trip_columns()` ya incluye `wav_match_flag`).
+`~/nyctaxi/{models,data}`. **Fase 3 hecha:** persistencia (`api/migrations/`,
+tablas `participants`/`experiments`/`decisions`/`waitlist`), simulación del
+día, endpoints `/experiments/*`, `/share-data`, `/waitlist`, `/share-email`
+y `/metrics`, rate limit por IP, y `ReferenceDistribution.qs2` ya instalado
+en `MODELS_DIR` (suite API 478 assertions + `api/dev/e2e_experiments.sh`
+en verde; ver la sección de experimentos). **Pendiente:** `share/`,
+`infra/`, el CI y las imágenes de despliegue (§14, fases 3-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -93,10 +96,25 @@ commit; `trip_columns()` ya incluye `wav_match_flag`).
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - Tests de API sin servidor: `httr2::with_mocked_responses()` (`test-api_client.R`).
 - Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
-  `Rscript tests/testthat.R` (213 assertions; Postgres y Redis reales del
-  compose raíz — levantar `docker compose up -d` antes).
+  `Rscript tests/testthat.R` (478 assertions; Postgres y Redis reales del
+  compose raíz — levantar `docker compose up -d` antes). El único skip es
+  `test-outcome.R` cuando `MODELS_DIR/ReferenceDistribution.qs2` está
+  instalado.
 - Smoke de la API (contenedor): `bash api/dev/smoke.sh` (28 casos con timings;
   sensibilidad cold/hit/mobile incluidos).
+- E2E de experimentos (contenedor): `bash api/dev/e2e_experiments.sh <ip>`
+  (13 pasos con asserts: crear async → setup → in_progress → jugar → finish
+  con percentil → abandon 409 → waitlist → metrics). La IP cuenta para el
+  límite de 3 experimentos/día, así que **pasar una IP fresca** en cada run.
+- **OMP y `fork()` (crítico):** los shells nix (`default.nix` raíz y
+  `api/default.dev.nix`) exportan `OMP_NUM_THREADS=1` (más
+  `OPENBLAS_NUM_THREADS` y `VECLIB_MAXIMUM_THREADS`). `POST /experiments`
+  calcula las trayectorias en un hijo `fork()`eado y libgomp lee esa variable
+  **al arrancar R**: sin ella el hijo hereda el pool de OpenMP y se bloquea
+  en `futex_wait` con 0 CPU, dejando el día en `setup` para siempre.
+  `Sys.setenv()` dentro de R llega tarde (libgomp ya está cargado); si R
+  arranca sin la variable, `api/plumber.R` imprime un WARNING y
+  `test-experiments-async.R` se salta.
 - Reiniciar la API (contenedor): matar con
   `pkill -f "file=api/plumb[e]r"` (el corchete evita que el pkill mate al
   propio shell que lo invoca; el proceso real es
@@ -112,6 +130,27 @@ commit; `trip_columns()` ya incluye `wav_match_flag`).
 - Contenedor de desarrollo (cwd = raíz): `./setup.sh` (`-np` para no hacer pull).
   Hoy la imagen solo levanta sshd (host :2222, repo en `/root/NycTaxiApp`): es el
   entorno de desarrollo, **no** las imágenes de despliegue del §1.1.
+
+## Experimentos (fase 3): create asíncrono
+- **Divergencia con §4.6** (anotada en `CHANGELOG.md`): `POST /experiments`
+  responde **201 en ~0,2 s** con `status: setup`, `model_progress: 0` y
+  `next_trip: null`, y las trayectorias policy/baseline se calculan en un hijo
+  `fork()`eado mientras el cliente sondea `GET /experiments/{id}/state`
+  (`model_progress` 0-99) hasta `in_progress`. El doc describe un create
+  síncrono: **no corregir el documento**; manda el código + la nota.
+- Guardas: decisions/finish en `setup` → 409 "The day has not started yet.";
+  más de **120 s** en `setup` (`SETUP_TIMEOUT_S`) → la fila se abandona y
+  `/state` responde 503. `model_progress` solo aparece en el cuerpo mientras
+  el estado es `setup`.
+- `MODELS_DIR/ReferenceDistribution.qs2` es **requisito de `/finish`**: 200
+  con `user_percentile` si existe, 503 si no. Se genera offline con
+  `tools/build_reference_distribution.R` (1.000 semillas por compañía,
+  ~75 min).
+- Las tablas viven en Postgres (nada de experimentos cacheados en
+  `model_state`); solo se guardan ahí `traj_jobs` (hijos por recoger) y la
+  distribución de referencia. Los tests fijan `API_EXPERIMENTS_SYNC="1"`
+  (`helper-load.R`) para que el create corra inline y no haya carreras de
+  sondeo.
 
 ## Validación del código R (flujo obligatorio)
 En el host NO hay R: el único entorno válido es el contenedor de desarrollo.
@@ -159,7 +198,7 @@ Es el **prototipo original** (paquete R + artículos Quarto) del que este
 monorepo porta el código. Úsalo para leer/copiar, **nunca para editarlo** y
 **nunca como dependencia** (no aparece en ningún `DESCRIPTION`, `default.nix`
 ni Dockerfile de aquí).
-- **Fase 3 (portar):** `R/simulate_trips.R` → `simulate_trips()` de la API
+- **Fase 3 (ya portada):** `R/simulate_trips.R` → `simulate_trips()` de la API
   (§3 del doc maestro: duración 8h+30 min, viajes on-the-fly, semilla,
   regla WAV `wav_match_flag`) · `R/add_take_current_trip.R` → reglas de
   decisión (`performance_per_hour`, `percentile_75_performance`) ·

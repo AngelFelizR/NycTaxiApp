@@ -117,7 +117,7 @@ predict_handler <- function(request, response, body) {
   }
 
   response$body <- list(
-    accepted = probability > 0.90,
+    accepted = probability > policy_threshold,
     probability = probability
   )
   plumber2::Break

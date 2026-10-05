@@ -3,6 +3,15 @@
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+# The dev container exports no TZ, so R reads the session zone as "" and
+# RPostgres' own validation of its `timezone` argument fails ("Invalid time
+# zone 'UTC' ... CCTZ: Unrecognized timezone of the input vector: ''"),
+# leaving the connection's timezone slots empty: timestamps would then be
+# bound and fetched through an empty zone. Every timestamp in the contract is
+# UTC, so the session is pinned here -- before any connection is opened --
+# for both entry points (plumber.R and the tests).
+Sys.setenv(TZ = "UTC")
+
 # Serializers must be passed to EVERY route (plumber2 0.1.0 has no global
 # default; a route without one fails the Accept negotiation with 406).
 json_serializers <- function() {
@@ -83,7 +92,10 @@ read_json_body <- function(body, request) {
   } else {
     tryCatch(jsonlite::fromJSON(text, simplifyVector = FALSE), error = function(e) NULL)
   }
-  if (is.null(parsed) || !is.list(parsed) || is.null(names(parsed))) {
+  # The top level has to be a JSON object. `{}` parses to an unnamed list and
+  # is a valid payload (it means "every optional field omitted"), while
+  # arrays, scalars and broken JSON are not.
+  if (is.null(text) || !startsWith(trimws(text), "{") || !is.list(parsed)) {
     return(api_fail(400L, "bad_request", "The request payload is invalid."))
   }
   parsed
@@ -102,6 +114,14 @@ is_number <- function(x) is.numeric(x) && length(x) == 1L && !is.na(x) && is.fin
 is_wholenumber <- function(x) is_number(x) && x == round(x)
 
 is_zone_id <- function(x) is_wholenumber(x) && x >= 1 && x <= 265
+
+# Simple address check (regex + length, no MX lookup) shared by Setup,
+# share-email and the waitlist.
+EMAIL_PATTERN <- "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+
+is_email <- function(x, max_chars = 254L) {
+  is_string(x) && nchar(x) <= max_chars && grepl(EMAIL_PATTERN, x)
+}
 
 valid_company <- function(x) is_string(x) && x %in% c("Lyft", "Uber")
 

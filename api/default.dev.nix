@@ -18,4 +18,12 @@ in pkgs.mkShell {
     else "";
   LANG = "en_US.UTF-8";
   LC_ALL = "en_US.UTF-8";
+  # fork()-safe: POST /experiments forks a child to compute the two model
+  # trajectories (R/endpoints/experiments.R). libgomp is already loaded when
+  # R starts and reads OMP_NUM_THREADS there, so it has to be part of the
+  # environment instead of a Sys.setenv() inside plumber.R. A fork after
+  # OpenMP has built its thread pool deadlocks the child in futex_wait.
+  OMP_NUM_THREADS = "1";
+  OPENBLAS_NUM_THREADS = "1";
+  VECLIB_MAXIMUM_THREADS = "1";
 }

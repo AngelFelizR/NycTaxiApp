@@ -188,6 +188,8 @@ sensitivity_handler <- function(request, response, body) {
 
 # Timing of /sensitivity is always logged (section 8), cached or not.
 log_sensitivity_timing <- function(t0, hit, grid_len, trip_id, compute_ms = NULL) {
+  # /metrics counters (section 6.8), one per answered request.
+  redis_incr(if (hit) "sens:cache:hits" else "sens:cache:misses", ttl = NULL)
   cat(sprintf(
     "sensitivity: hit=%s ms=%d grid=%d trip=%s%s\n",
     if (hit) "TRUE" else "FALSE",

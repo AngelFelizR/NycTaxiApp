@@ -15,6 +15,37 @@ script_path <- if (length(args_all) > 0) {
 }
 root <- normalizePath(file.path(dirname(script_path), ".."))
 
+# POST /experiments forks a child to compute the two model trajectories
+# (R/endpoints/experiments.R). fork() only copies the calling thread, so any
+# worker thread the parent owns becomes a lock nobody holds: OpenMP builds its
+# thread pool at the first parallel region (warmup, first predict) and the
+# child then deadlocks in futex_wait with no CPU at all. One thread per
+# library keeps the parent fork-safe; the batches here are small, so nothing
+# is lost.
+#
+# libgomp is already loaded when R starts and reads OMP_NUM_THREADS in its
+# constructor, so this has to be exported by the shell (api/default.dev.nix
+# and the root default.nix do it) rather than set here. What follows is a
+# best effort for the libraries that read it lazily, plus a loud warning when
+# the shell got it wrong: Sys.setenv() cannot repair libgomp after the fact.
+omp_at_start <- Sys.getenv("OMP_NUM_THREADS")
+if (!identical(omp_at_start, "1")) {
+  cat(
+    "WARNING: OMP_NUM_THREADS='", omp_at_start, "' when R started, and ",
+    "libgomp already read it.\n",
+    "         POST /experiments forks a child and can deadlock (futex_wait). ",
+    "Use nix-shell\n",
+    "         (api/default.dev.nix) or export OMP_NUM_THREADS=1 before ",
+    "starting R.\n",
+    sep = "", file = stderr()
+  )
+}
+Sys.setenv(
+  OMP_NUM_THREADS = "1",
+  OPENBLAS_NUM_THREADS = "1",
+  VECLIB_MAXIMUM_THREADS = "1"
+)
+
 source(file.path(root, "api", "R", "utils.R"))
 load_dotenv(file.path(root, ".env"))
 
@@ -48,19 +79,30 @@ suppressPackageStartupMessages({
 for (rel in c(
   "R/db/pool.R",
   "R/db/redis.R",
+  "R/db/migrations.R",
+  "R/db/queries.R",
   "R/data/trips.R",
   "R/ml/load_model.R",
   "R/ml/perf.R",
   "R/ml/predict.R",
   "R/ml/recommend.R",
   "R/ml/sensitivity.R",
+  "R/ml/simulate.R",
+  "R/ml/outcome.R",
   "R/middleware/internal_auth.R",
+  "R/middleware/client_ip.R",
+  "R/middleware/rate_limit.R",
   "R/middleware/cors.R",
   "R/endpoints/health.R",
   "R/endpoints/predict.R",
   "R/endpoints/recommend_start.R",
   "R/endpoints/validate_trip_start.R",
   "R/endpoints/sensitivity.R",
+  "R/endpoints/experiments.R",
+  "R/endpoints/share_data.R",
+  "R/endpoints/waitlist.R",
+  "R/endpoints/metrics.R",
+  "R/endpoints/share_email.R",
   "R/endpoints/not_found.R"
 )) {
   source(file.path(root, "api", rel))
@@ -84,7 +126,17 @@ tryCatch(
     message("model loading failed: ", model_error)
   }
 )
+# Phase 3: apply api/migrations/*.sql on boot (idempotent; a fresh database
+# comes up without a manual step). model_state$repo_root is what resolves the
+# migration directory from the tests too.
+model_state$repo_root <- root
 model_state$pool <- create_db_pool()
+tryCatch(
+  if (!ensure_schema(model_state$pool)) {
+    message("migrations: schema not ready (experiments answer 503 until fixed)")
+  },
+  error = function(e) message("migrations failed: ", conditionMessage(e))
+)
 
 # Phase 2: trip dataset + zone shapes (~300MB) and a Redis ping, both logged.
 # A missing /data mount or a down Redis only disables /sensitivity caching;
@@ -166,6 +218,35 @@ api <- plumber2::api_post(
   api, "/sensitivity", sensitivity_handler,
   serializers = js, parsers = pj
 )
+# Phase 3: experiments, share data, waitlist, metrics (sections 5.2-5.8).
+# GET routes without a body take no parsers; POST routes that read a payload
+# declare `body` and get the identity JSON parser like the others.
+api <- plumber2::api_post(
+  api, "/experiments", create_experiment_handler,
+  serializers = js, parsers = pj
+)
+api <- plumber2::api_get(api, "/experiments/<id>", get_experiment_handler, serializers = js)
+api <- plumber2::api_get(api, "/experiments/<id>/state", get_state_handler, serializers = js)
+api <- plumber2::api_post(
+  api, "/experiments/<id>/decisions", create_decision_handler,
+  serializers = js, parsers = pj
+)
+api <- plumber2::api_post(api, "/experiments/<id>/finish", finish_experiment_handler, serializers = js)
+api <- plumber2::api_post(
+  api, "/experiments/<id>/feedback", feedback_handler,
+  serializers = js, parsers = pj
+)
+api <- plumber2::api_post(api, "/experiments/<id>/abandon", abandon_experiment_handler, serializers = js)
+api <- plumber2::api_post(
+  api, "/experiments/<id>/share-email", share_email_handler,
+  serializers = js, parsers = pj
+)
+api <- plumber2::api_get(api, "/share-data/<token>", share_data_handler, serializers = js)
+api <- plumber2::api_post(
+  api, "/waitlist", waitlist_handler,
+  serializers = js, parsers = pj
+)
+api <- plumber2::api_get(api, "/metrics", metrics_handler, serializers = js)
 api <- plumber2::api_any(api, "/*", not_found_handler, serializers = js)
 api <- apply_cors(api)
 

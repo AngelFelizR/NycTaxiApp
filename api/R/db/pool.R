@@ -11,6 +11,12 @@ create_db_pool <- function() {
       dbname = Sys.getenv("POSTGRES_DB", "nyctaxi"),
       user = Sys.getenv("POSTGRES_USER", "nyctaxi"),
       password = Sys.getenv("POSTGRES_PASSWORD", ""),
+      # Every timestamp in the contract is UTC; without these the connection
+      # inherits the container's empty session TimeZone, and RPostgres warns
+      # ("Invalid time zone" on write, "Unrecognized time zone ''" on read)
+      # while binding and fetching POSIXct columns.
+      timezone = "UTC",
+      timezone_out = "UTC",
       minSize = 1,
       maxSize = 4
     ),

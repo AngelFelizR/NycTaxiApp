@@ -427,12 +427,17 @@ paths:
       operationId: createExperiment
       summary: Start a simulated day
       description: |
-        Creates the experiment, pre-computes the three trajectories (user,
-        policy, baseline) from the same seed and starting conditions, and
+        Creates the experiment, answers immediately with `status: setup` and
         returns `resume_code` **exactly once** (it is stored only as a SHA-256
-        hash). Sending `seed` marks the result as unofficial
-        (`seed_is_custom: true`). Rate limit: 3 per day per real IP
-        (`X-Client-IP` only counts together with a valid `X-Internal-Key`).
+        hash), while the policy and baseline trajectories are computed in the
+        background (~10-20s) and written to the database in chunks of five
+        decisions. Poll `GET /experiments/{id}/state` until `status` becomes
+        `in_progress`: `model_progress` (0-99) tracks the background job and
+        `next_trip` is null until the day starts. If the job never finishes
+        the experiment is retired after 120s and `/state` answers 503.
+        Sending `seed` marks the result as unofficial (`seed_is_custom: true`).
+        Rate limit: 3 per day per real IP (`X-Client-IP` only counts together
+        with a valid `X-Internal-Key`).
       tags: [experiments]
       parameters:
         - $ref: "#/components/parameters/ClientIpRequired"
@@ -451,7 +456,10 @@ paths:
               marketing_consent: false
       responses:
         "201":
-          description: Experiment created; day state plus the one-time resume code.
+          description: |
+            Experiment created in setup; day state plus the one-time resume
+            code. The model trajectories are still being computed: poll /state
+            until status is in_progress.
           content:
             application/json:
               schema:
@@ -460,28 +468,17 @@ paths:
                 experiment_id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
                 resume_code: Gh7Kq2mZx9LpW4vRt8Yb1c
                 share_token: aZ3kQ9mLp1Rt
-                status: in_progress
+                status: setup
                 clock: "2024-05-12 00:00:00"
                 pending_hours: 8
                 pct_following_policy: 100
                 current_location_id: 61
                 current_zone: Queens - Saint Albans
-                next_trip:
-                  trip_id: 88421
-                  pulocation_id: 61
-                  dolocation_id: 161
-                  pickup_zone: Queens - Saint Albans
-                  dropoff_zone: Midtown-Midtown South
-                  miles: 9.4
-                  trip_time_sec: 1500
-                  driver_pay: 20.75
-                  tips: 1.5
-                  request_datetime: "2024-05-12T00:05:00Z"
-                  recommendation: accept
-                  probability: 0.97
+                next_trip: null
                 history:
                   - {step: 0, user: 0, policy: 0, baseline: 0}
                 result: null
+                model_progress: 0
         "400":
           $ref: "#/components/responses/BadRequest"
         "403":
@@ -557,7 +554,14 @@ paths:
     get:
       operationId: getExperimentState
       summary: Live day state plus next trip
-      description: Reconstructs the state from `decisions` and computes the next trip on the fly from the seed. `next_trip` is null once the experiment is finished.
+      description: |
+        Reconstructs the state from `decisions` and computes the next trip on
+        the fly from the seed. While status is setup this call is also the
+        progress endpoint for the background job: `model_progress` climbs
+        0-99 and `next_trip` is null until status flips to in_progress
+        (another reason for it to be null is a finished experiment). If the
+        background job never finishes the experiment is retired after 120s and
+        this call answers 503.
       tags: [experiments]
       security:
         - InternalKey: []
@@ -670,7 +674,11 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: 409 - the step was already decided with a different payload.
+          description: |
+            409 - the day has not started yet (status setup, the model
+            trajectories are still being computed, message "The day has not
+            started yet."), the experiment is no longer in progress, or the
+            step was already decided with a different payload.
           content:
             application/json:
               schema:
@@ -738,7 +746,18 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/Conflict"
+          description: |
+            409 - state conflict: the day has not started yet (status setup,
+            the model trajectories are still being computed) or the
+            experiment is no longer in progress (already finished or
+            abandoned).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: conflict
+                message: The day has not started yet.
         "500":
           $ref: "#/components/responses/InternalError"
         "503":
@@ -1470,10 +1489,19 @@ components:
         current_zone:
           type: string
         next_trip:
-          description: Next ride offered to the player; null once the experiment is finished.
+          description: Next ride offered to the player; null while the experiment is in setup and once it is finished.
           oneOf:
             - $ref: "#/components/schemas/Trip"
             - type: "null"
+        model_progress:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: |
+            Only present while status is setup: approximate progress of the
+            background job computing the policy and baseline trajectories.
+            The field disappears when status flips to in_progress, so 100 is
+            implied by the status rather than reported.
         history:
           type: array
           items:
@@ -1490,7 +1518,10 @@ components:
       description: |
         Day state plus the credentials issued at creation. `resume_code` is
         returned **exactly once** and never again; the client must store it
-        (localStorage / modal). `result` is null until the day is finished.
+        (localStorage / modal). The response is a `setup` state: the model
+        trajectories are computed in the background and the player polls
+        /state until status becomes in_progress. `result` is null until the
+        day is finished.
       properties:
         experiment_id:
           type: string
@@ -1515,10 +1546,19 @@ components:
         current_zone:
           type: string
         next_trip:
-          description: Next ride offered to the player; null once the experiment is finished.
+          description: Next ride offered to the player; null while the experiment is in setup and once it is finished.
           oneOf:
             - $ref: "#/components/schemas/Trip"
             - type: "null"
+        model_progress:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: |
+            Only present while status is setup: approximate progress of the
+            background job computing the policy and baseline trajectories.
+            The field disappears when status flips to in_progress, so 100 is
+            implied by the status rather than reported.
         history:
           type: array
           items:
