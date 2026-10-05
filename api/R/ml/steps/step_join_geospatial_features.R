@@ -223,43 +223,62 @@ bake.step_join_geospatial_features <- function(
   new_data,
   ...
 ) {
-  # 1. Defining tables as data.table to perform the join -----------------------
+  spatial_features <- object$spatial_features
+  join_by <- attr(spatial_features, "join_by")
+  old_names <- names(spatial_features)
+  prefixes <- object$col_prefix
 
-  spatial_features = object$spatial_features
-  data.table::setDT(new_data)
-  data.table::setDT(spatial_features)
-
-  # 2. Listing the ids to perform the join -------------------------------------
-
-  join_by = attr(spatial_features, "join_by")
-
-  # 3. Join the features to the new data ---------------------------------------
-  # If were are not using prefixes them we can perform a single join
-  # But if we are using prefixes then we need to perform a join for each prefix
-
-  if (is.null(object$col_prefix)) {
-    new_data = spatial_features[new_data, on = join_by]
-  } else {
-    old_names = names(spatial_features)
-
-    for (prefix_i in object$col_prefix) {
-      join_by_i =
-        grep(pattern = prefix_i, x = join_by, value = TRUE)[1L]
-
-      spatial_copy = data.table::copy(spatial_features)
-
-      new_names = paste0(prefix_i, old_names)
-      data.table::setnames(spatial_copy, old_names, new_names)
-
-      new_data = spatial_copy[new_data, on = join_by_i]
+  # Fast path: one lookup column per prefix, resolved with match() instead of
+  # two full data.table joins plus per-call copies (was ~14 ms per bake).
+  # Output columns mirror `spatial_copy[new_data, on = join_by_i]`: the
+  # prefixed spatial columns come first (last prefix first), the key column
+  # takes new_data's values and non-matching rows get NA in the spatial
+  # columns; new_data columns follow with the join keys removed.
+  if (!is.null(prefixes)) {
+    keys <- vapply(prefixes, function(prefix_i) {
+      grep(pattern = prefix_i, x = join_by, value = TRUE)[1L]
+    }, character(1), USE.NAMES = FALSE)
+    if (!anyNA(keys)) {
+      parts <- list()
+      for (k in rev(seq_along(prefixes))) {
+        prefix_i <- prefixes[[k]]
+        key_i <- keys[[k]]
+        key_in_sf <- gsub(paste0(prefixes, collapse = "|"), "", key_i)
+        idx <- match(new_data[[key_i]], spatial_features[[key_in_sf]])
+        for (nm in old_names) {
+          parts[[paste0(prefix_i, nm)]] <-
+            if (nm == key_in_sf) new_data[[key_i]] else spatial_features[[nm]][idx]
+        }
+      }
+      for (nm in setdiff(names(new_data), keys)) {
+        parts[[nm]] <- new_data[[nm]]
+      }
+      return(tibble::new_tibble(
+        parts, nrow = nrow(new_data), .name_repair = "minimal"
+      ))
     }
   }
 
-  # 4. Taking the new data back to tibble to avoid problems --------------------
-
-  new_data = tibble::as_tibble(new_data)
-
-  return(new_data)
+  # Generic fallback: the original data.table joins (multi-column keys or an
+  # untrained step without prefixes). as.data.table() copies, so the stored
+  # spatial table is never mutated by reference (the upstream step used
+  # setDT(), which rewrote the fitted object on every bake).
+  sf <- data.table::as.data.table(spatial_features)
+  new_data_dt <- data.table::as.data.table(new_data)
+  if (is.null(prefixes)) {
+    out <- sf[new_data_dt, on = join_by]
+  } else {
+    for (prefix_i in prefixes) {
+      join_by_i <- grep(pattern = prefix_i, x = join_by, value = TRUE)[1L]
+      spatial_copy <- data.table::copy(sf)
+      data.table::setnames(
+        spatial_copy, old_names, paste0(prefix_i, old_names)
+      )
+      out <- spatial_copy[new_data_dt, on = join_by_i]
+      new_data_dt <- out
+    }
+  }
+  tibble::as_tibble(out)
 }
 
 
@@ -277,7 +296,9 @@ bake.step_join_geospatial_features <- function(
 #'
 #' @export
 required_pkgs.step_join_geospatial_features <- function(x, ...) {
-  c("data.table", "NycTaxi")
+  # Upstream (AngelFelizR/NycTaxi) also listed "NycTaxi"; the step was copied
+  # out of that package for api/, so only data.table is needed at bake time.
+  "data.table"
 }
 
 

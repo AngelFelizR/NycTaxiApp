@@ -1,0 +1,32 @@
+Package: taxiapi
+Title: NYC Taxi Decision API
+Version: 0.1.0
+Description: Private plumber2 API for the NYC Taxi Decision Simulator (phase 1
+    of the master document): accept/reject policy, start validation and
+    recommended-start lookups behind an internal key. Not an installable
+    package: DESCRIPTION documents the dependencies and hosts the testthat
+    configuration, the code is sourced by api/plumber.R.
+Depends:
+    R (>= 4.1.0)
+Imports:
+    plumber2,
+    jsonlite,
+    qs2,
+    mori,
+    lubridate,
+    data.table,
+    digest,
+    pool,
+    DBI,
+    RPostgres,
+    workflows,
+    parsnip,
+    recipes,
+    themis,
+    embed,
+    timeDate,
+    tailor,
+    ggplot2
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

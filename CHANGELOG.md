@@ -16,6 +16,18 @@ service at once.
 - `.env.example` with every environment variable; the real `.env` is gitignored.
 - MIT license.
 - `AGENTS.md` with repo conventions for AI agents.
+- Phase 1 API base (`api/`): plumber2 service with `GET /health`,
+  `POST /predict`, `POST /recommend-start`, `POST /validate-trip-start` and a
+  404 catch-all; `X-Internal-Key` auth, CORS, JSON contract errors, Postgres
+  pool for `/health`, mori-shared policy model with startup warm-up.
+- API latency work (phase-1 criterion: `curl` < 100 ms with models loaded):
+  memoised timeDate holiday calendars, faster bake methods for
+  `step_impute_median` / `step_rename`, `match()`-based geospatial step and a
+  tailor-free probability path; `/predict` answers in ~75 ms and RSS stays
+  around 530 MB (budget 1.2 GB).
+- `api/tests/` (testthat, 137 assertions) and `api/dev/` (`smoke.sh`,
+  `check_syntax.R`); test infrastructure decision in
+  `docs/decisions/0001-api-tests-use-fixed-postgres.md`.
 
 ### Changed
 
