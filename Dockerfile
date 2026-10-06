@@ -11,6 +11,17 @@
 # and separation are intentionally manual (per-layer caching).
 # If you add a new r-*.nix, add its corresponding layer here too
 # (Layer 9 will also pick it up automatically as a safety net).
+#
+# Two files under nix/ deliberately have NO layer here:
+#   - nix/r-app.nix    the UI aggregate; it only chains the layers below, so
+#                      baking it would add nothing but would pull in anything
+#                      added to it later. The repo is mounted at runtime, so
+#                      `nix-shell app/default.dev.nix` builds it on demand.
+#   - nix/test-tools.nix  the shinytest2 browser (chromium, 1.3 GB). Keeping
+#                      it out of every layer is the point: no image ships a
+#                      browser it never runs. The UI flow test fetches it from
+#                      the binary cache on first use, under
+#                      `nix-shell app/default.dev.nix`.
 
 FROM ubuntu:24.04
 

@@ -9,6 +9,18 @@ service at once.
 
 ### Added
 
+- Nix dependency split, so no image ships what it never runs:
+  `nix/pkgs-app.nix` (UI pin, same tarball as `pkgs.nix` today so nothing
+  rebuilds) and `nix/r-app.nix` (the whole UI in one expression — what the
+  phase-7 image will build), plus `nix/test-tools.nix` holding only the
+  chromium the shinytest2 flow test drives. `nix/system.nix`,
+  `r-shiny.nix`, `r-geo.nix`, `r-plotting.nix` and `r-dev.nix` are now
+  functions `{ pkgs ? import ./pkgs.nix }:` — `nix-build` auto-calls the
+  defaults, so every Dockerfile layer is unchanged — and the root shell
+  passes `pkgs.nix` while `app/default.dev.nix` passes `pkgs-app.nix`.
+  `app/default.dev.nix` is the shell for UI work: it is the one that
+  provides the browser, which is why the flow test skips (naming that
+  shell) under the root shell instead of failing.
 - Phase 4 UI Setup: `app/` now talks to the real contract endpoints instead of
   the retired transitional routes. `app/R/api_client.R` covers
   `validate-trip-start`, `recommend-start`, the whole `/experiments/*` surface,
@@ -65,6 +77,16 @@ service at once.
 
 ### Changed
 
+- Dependencies that nothing used are gone: `chromium` (1.3 GB of closure) left
+  `nix/system.nix` — the generic layer every future image reuses, which should
+  never carry a browser — and `devtools`/`roxygen2` (75 MB) left
+  `nix/r-dev.nix`, since `app/` is explicitly not an installed package (no
+  `NAMESPACE`, no `man/`) and `api/` has its own `r-api.nix`. Measured:
+  `system.nix` 3701 → 2428 MB, `r-dev.nix` 2356 → 2281 MB.
+- The shinytest2 flow test now reports why it skipped: `find_chrome()` returns
+  `NULL` rather than throwing and `nzchar(NULL)` is `logical(0)`, which
+  `skip_if()` silently drops, so the browser check was a no-op and only
+  shinytest2's own vaguer error surfaced.
 - The mirai workers start lazily on the first API call (`ensure_daemons()`)
   instead of at startup, and `ggplot2` is attached on first chart
   (`ensure_ggplot2()`): together they take the app from ~4 s to ~1.5 s to

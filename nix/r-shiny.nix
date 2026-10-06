@@ -1,6 +1,7 @@
-let
-  pkgs = import ./pkgs.nix;
-in
+# Shiny stack for the UI. `pkgs` is a parameter so nix/r-app.nix can pin it to
+# pkgs-app.nix while the root dev shell passes ./pkgs.nix; the default keeps
+# `nix-build nix/r-shiny.nix` (Dockerfile layer 9) working unchanged.
+{ pkgs ? import ./pkgs.nix }:
   pkgs.buildEnv {
     name = "r-shiny-pkgs";
     paths = builtins.attrValues {

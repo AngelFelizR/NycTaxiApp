@@ -1,6 +1,13 @@
-let
-  pkgs = import ./pkgs.nix;
-in
+# Generic system layer: the R interpreter, locales, fonts and the handful of
+# binaries every shell and every deployment image needs. Deliberately generic —
+# a service image must be able to reuse this layer without inheriting another
+# service's tools, which is why test-only tools (nix/test-tools.nix) and the
+# R package sets (nix/r-*.nix) live elsewhere.
+#
+# `pkgs` is a parameter so a caller can pin it: the UI passes pkgs-app.nix,
+# the root dev shell passes ./pkgs.nix. The default keeps `nix-build
+# nix/system.nix` (Dockerfile layer 5) working unchanged.
+{ pkgs ? import ./pkgs.nix }:
   pkgs.buildEnv {
     name = "system-packages";
     paths = builtins.attrValues {
@@ -11,10 +18,6 @@ in
         which
         fontconfig
         dejavu_fonts
-        freefont_ttf
-        # Headless browser for the shinytest2 flow test (phase 4 criterion):
-        # chromote looks for `chromium` on the PATH (CHROMOTE_CHROME overrides
-        # it). Baking it in keeps the test runnable inside the dev container.
-        chromium;
+        freefont_ttf;
     };
   }

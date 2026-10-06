@@ -4,23 +4,37 @@
 
 let
   pkgs = import ./nix/pkgs.nix;
-  systemPackages = import ./nix/system.nix;
+  systemPackages = import ./nix/system.nix { inherit pkgs; };
 
   dirEntries = builtins.readDir ./nix;
 
-  # r-api.nix is intentionally NOT part of this shell: it is pinned to
-  # nix/pkgs-api.nix (2025-12-02 / R 4.5.2, the training environment) and
-  # mixing its libraries here would put R-4.5.2-compiled packages in front of
-  # this shell's R 4.6.1 ones (R_LIBS_SITE is ordered by file name). The API
-  # env is consumed by Dockerfile layer 9b and api/default.dev.nix only.
+  # Two files under nix/ are intentionally NOT part of this shell:
+  #
+  #  - r-api.nix: pinned to nix/pkgs-api.nix (2025-12-02 / R 4.5.2, the
+  #    training environment) and mixing its libraries here would put
+  #    R-4.5.2-compiled packages in front of this shell's R 4.6.1 ones
+  #    (R_LIBS_SITE is ordered by file name). Consumed by Dockerfile layer
+  #    9b and api/default.dev.nix only.
+  #  - r-app.nix: the AGGREGATE for the UI (r-shiny + r-geo + r-plotting +
+  #    r-dev pinned to nix/pkgs-app.nix). Importing it here would duplicate
+  #    every module the filter below already adds. Consumed by
+  #    app/default.dev.nix.
+  #
+  # nix/test-tools.nix (the shinytest2 browser) is not named r-*.nix on
+  # purpose: this shell must stay free of test-only tools so the baked
+  # dev-shell profile does not grow by the 1.3 GB chromium closure. The
+  # UI flow test runs under `nix-shell app/default.dev.nix` instead.
   rModuleFiles = builtins.filter
     (name:
       pkgs.lib.hasPrefix "r-" name &&
       pkgs.lib.hasSuffix ".nix" name &&
-      name != "r-api.nix")
+      name != "r-api.nix" &&
+      name != "r-app.nix")
     (builtins.attrNames dirEntries);
 
-  rModuleList = map (file: import (./nix + "/${file}")) rModuleFiles;
+  # Every module takes `pkgs` so a caller can pin it; the root shell passes
+  # ./pkgs.nix (the default anyway) to keep one consistent R for the shell.
+  rModuleList = map (file: import (./nix + "/${file}") { inherit pkgs; }) rModuleFiles;
 
   shell = pkgs.mkShell {
     R_LIBS_SITE = pkgs.lib.concatMapStringsSep ":" (p: "${p}/library") rModuleList;

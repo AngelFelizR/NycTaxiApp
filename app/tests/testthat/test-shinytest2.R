@@ -9,8 +9,15 @@ skip_if_not_installed("callr")
 skip_if_not_installed("chromote")
 skip_if_not_installed("withr")
 
-chrome <- tryCatch(chromote::find_chrome(), error = function(e) "")
-skip_if(!nzchar(chrome), "no Chrome/Chromium on the PATH")
+# find_chrome() returns NULL (not an error) when nothing is on the PATH, and
+# nzchar(NULL) is logical(0), which skip_if() would silently drop -- so the
+# NULL has to be handled explicitly or shinytest2 fails with a vaguer message.
+chrome <- tryCatch(chromote::find_chrome(), error = function(e) NULL)
+skip_if(
+  is.null(chrome) || !nzchar(chrome),
+  paste("no Chrome/Chromium on the PATH: run this suite with",
+        "`nix-shell app/default.dev.nix` (nix/test-tools.nix provides it)")
+)
 
 # Random port: probing with socketConnection(server = TRUE) blocks, and this
 # file runs once per invocation, so a collision would be a fluke anyway.
