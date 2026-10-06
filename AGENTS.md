@@ -16,9 +16,16 @@ ya existe (raíz, gitignored) con `MODELS_DIR` y `DATA_DIR` apuntando a
 tablas `participants`/`experiments`/`decisions`/`waitlist`), simulación del
 día, endpoints `/experiments/*`, `/share-data`, `/waitlist`, `/share-email`
 y `/metrics`, rate limit por IP, y `ReferenceDistribution.qs2` ya instalado
-en `MODELS_DIR` (suite API 478 assertions + `api/dev/e2e_experiments.sh`
-en verde; ver la sección de experimentos). **Pendiente:** `share/`,
-`infra/`, el CI y las imágenes de despliegue (§14, fases 3-9).
+en `MODELS_DIR` (suite API 477 assertions + `api/dev/e2e_experiments.sh`
+en verde; ver la sección de experimentos). **Fase 4 hecha:** la UI (`app/`)
+habla con los endpoints reales del contrato: `mod_setup` con Leaflet
+bidireccional, validación con hints, email/marketing, semilla avanzada y el
+modal único de `resume_code`; `mod_header`, `mod_confirm_modal` y un
+`mod_results` mínimo; estado de sesión en `state.R` (reenvío de `X-Client-IP`);
+arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
+`app/dev/mock_api.R` y 92 assertions (unit + flujo `shinytest2` en Chromium).
+**Pendiente:** `share/`, `infra/`, el CI y las imágenes de despliegue
+(§14, fases 5-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -91,12 +98,18 @@ en verde; ver la sección de experimentos). **Pendiente:** `share/`,
 
 ## Comandos (cwd = `app/` salvo indicación)
 - Tests UI: `Rscript tests/testthat.R`. NO `test_check()`/`devtools::test()`:
-  no es un paquete instalado; `helper-load.R` hace `source()` de `R/api_client.R`
-  y `R/utils.R` a mano.
+  no es un paquete instalado; `helper-load.R` hace `source()` a mano de todo
+  `R/*.R` y `R/modules/*.R` (el orden importa).
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - Tests de API sin servidor: `httr2::with_mocked_responses()` (`test-api_client.R`).
+- Test de flujo (`test-shinytest2.R`, fase 4): levanta `dev/mock_api.R` en un
+  puerto aleatorio, arranca la app real en Chromium headless y recorre
+  Setup → modal → Trips → aceptar viaje, más el reenvío de `X-Client-IP`.
+  Requiere `chromium` en el PATH (`nix/system.nix`) y `NOT_CRAN=true`
+  (`AppDriver` se niega a correr si testthat cree que estamos en CRAN); se
+  salta solo si no hay navegador.
 - Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
-  `Rscript tests/testthat.R` (478 assertions; Postgres y Redis reales del
+  `Rscript tests/testthat.R` (477 assertions; Postgres y Redis reales del
   compose raíz — levantar `docker compose up -d` antes). El único skip es
   `test-outcome.R` cuando `MODELS_DIR/ReferenceDistribution.qs2` está
   instalado.
@@ -177,20 +190,19 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - Todo el HTTP pasa por `api_async()` (mirai) + `ExtendedTask` +
   `bind_task_button`; resultados con `task_result()`. Nunca httr2 directo en un
   observer. URL base: `TAXI_API_URL` (defecto `http://127.0.0.1:8000`).
-- `API_CONTRACT.md` = contrato de las 5 rutas mínimas que consume la app hoy,
-  marcado como **transitorio** ("Status: transitional"): la UI todavía no habla
-  con los 18 endpoints reales. El catálogo completo (18 endpoints,
-  `X-Internal-Key`, rate limit) está en §5.2 y en `contract/openapi.yaml`.
+- El catálogo de los 18 endpoints (`X-Internal-Key`, `X-Resume-Code`, rate
+  limit) está en §5.2 y en `contract/openapi.yaml`, que es lo que el cliente
+  implementa. `R/modules/mod_results.R` existe como panel mínimo de Results
+  (la fase 6 lo amplía con share/feedback/percentil).
 
 ## Fuente de verdad y prioridad entre documentos
 - **Documento maestro = decisiones de arquitectura; no se edita.** Si el código
   actual diverge del doc, el doc marca la meta y el código el estado actual:
   anotar la diferencia, nunca "corregir" el documento.
 - `contract/openapi.yaml` + `contract/share.openapi.yaml` = contrato HTTP
-  **autoritativo** (meta de las fases 4-6); toda implementación nueva se
-  contrasta aquí y se revalida con Spectral (0 errores).
-- `API_CONTRACT.md` = contrato HTTP **vigente** de la UI (transitorio, 5 rutas);
-  se retira cuando la UI use los endpoints reales.
+  **autoritativo**; toda implementación nueva se contrasta aquí y se
+  revalida con Spectral (0 errores). La UI (`app/R/api_client.R`) ya habla
+  con estos endpoints, así que el transitorio `API_CONTRACT.md` fue retirado.
 - `docs/REPO_DECISION.md` = ADR monorepo vs. repos separados.
 
 ## Repositorio hermano `~/r-projects/NycTaxi` (referencia, solo lectura)

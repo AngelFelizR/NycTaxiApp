@@ -9,6 +9,39 @@ service at once.
 
 ### Added
 
+- Phase 4 UI Setup: `app/` now talks to the real contract endpoints instead of
+  the retired transitional routes. `app/R/api_client.R` covers
+  `validate-trip-start`, `recommend-start`, the whole `/experiments/*` surface,
+  `/sensitivity` and `/waitlist`, with `X-Internal-Key`, `X-Client-IP` and
+  `X-Resume-Code` on the way out, and `iso_8601()` normalising what the setup
+  form accepts.
+- `app/R/state.R` (`estado`): one `reactiveValues` per session holding the
+  client IP from `session$request`, the one-time `resume_code`, the latest
+  `DayState`, `model_progress` and the final result; `estado_ctx()` snapshots
+  what a call needs and `estado_set_state()` folds every answer back in.
+- `mod_setup`: bidirectional Leaflet (click a zone to select it, selecting a
+  zone highlights and recenters the map), validation hints derived from
+  `better_company`/`better_datetime`, the separate email/result-card/marketing
+  checkboxes, the collapsed advanced-seed option with its explanation popup,
+  the always-visible "Have a code?" resume section and the `?exp=` bookmark.
+- `mod_confirm_modal` wired as the only path from Start The Day to Trips: it
+  shows the one-time resume code with a copy button, and `nav_select` only
+  happens on Continue.
+- `mod_header`, plus a minimal `mod_results` panel (phase 6 adds share,
+  feedback and the percentile line) and `mod_trips` rewritten against the real
+  `DayState` (`experiment_id`, `next_trip`, `clock`, `history`).
+- `app/dev/mock_api.R`: canned implementation of the same contract with an
+  in-memory day and a `/__last` endpoint that records the `X-Client-IP` and
+  `X-Internal-Key` it received. `Rscript dev/run_mock_api.R` for local work.
+- `app/tests/testthat/test-shinytest2.R`: the phase-4 flow test. It starts the
+  mock on a random port, runs the real app in headless Chromium, injects
+  `X-Client-IP: 203.0.113.9` through the browser (what Nginx/ShinyProxy would
+  set) and walks Setup → hints → Start The Day → modal → Trips → accept, then
+  asserts the API saw that address. 92 app assertions in total.
+- `app/default.dev.nix`: a dev shell with only the UI modules, and `chromium`
+  in `nix/system.nix` so `shinytest2` finds a browser inside the container.
+
+
 - Phase 3 persistence and experiments: `api/migrations/001_init.sql`
   (participants, experiments, decisions, waitlist) plus idempotent
   migrations and query helpers, and the experiment endpoints
@@ -31,6 +64,21 @@ service at once.
   installed).
 
 ### Changed
+
+- The mirai workers start lazily on the first API call (`ensure_daemons()`)
+  instead of at startup, and `ggplot2` is attached on first chart
+  (`ensure_ggplot2()`): together they take the app from ~4 s to ~1.5 s to
+  "Listening on", against the phase-4 criterion of under 3 s. Both are torn
+  down on `onStop()`.
+- `api_client.R` uses `req_headers()` (`req_header()` was removed in httr2
+  1.3.0) through a small `api_header()` wrapper, since the header names here
+  are dynamic.
+- `app/DESCRIPTION` declares the packages the code actually uses (`shinyjs`,
+  `qs2`, `sf`, `jsonlite`, `promises`) and `shiny >= 1.9.0` for
+  `input_task_button`/`ExtendedTask`.
+- `API_CONTRACT.md` is retired: the UI speaks `contract/openapi.yaml` now, so
+  the transitional 5-route list only disagreed with the authoritative contract.
+
 
 - `POST /experiments` is asynchronous (divergence with section 4.6 of the
   master doc, which implies a synchronous create): it answers 201 in ~0.2 s

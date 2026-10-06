@@ -6,14 +6,19 @@ Description: Thin Shiny client for a plumber2 API. The app only renders UI and
 Depends:
     R (>= 4.1.0)
 Imports:
-    shiny (>= 1.8.1),
+    shiny (>= 1.9.0),
     bslib (>= 0.7.0),
     leaflet,
+    sf,
     ggplot2,
     httr2 (>= 1.0.0),
     mirai,
-    promises
+    promises,
+    shinyjs,
+    qs2,
+    jsonlite
 Suggests:
     testthat (>= 3.0.0),
+    shinytest2,
     plumber2
 Config/testthat/edition: 3
