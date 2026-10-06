@@ -1,0 +1,13 @@
+Package: taxiintegration
+Title: API <-> UI Integration Tests
+Version: 0.1.0
+Description: Checks that the three descriptions of the system agree with each
+    other: the two OpenAPI contracts, the routes the API actually registers and
+    the paths the two clients (app/ and share/) actually call. Contract drift
+    is cheap to catch here and expensive to discover in production.
+Depends:
+    R (>= 4.1.0)
+Imports:
+    testthat (>= 3.0.0),
+    yaml
+Config/testthat/edition: 3
