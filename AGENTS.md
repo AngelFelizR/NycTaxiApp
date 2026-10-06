@@ -45,8 +45,9 @@ LinkedIn + el segundo prompt de email de §6.5) montado en `mod_results`,
 `api_share_email` y el mock de `/share-email`. **Fase 7 (config) hecha:** ver su
 sección — `docker-compose.prod.yml`, `infra/`, los3 Dockerfiles multi-stage,
 los3 `default.prod.nix` y `.github/workflows/ci.yml`, todo validado pero
-**sin build ni despliegue reales**. **Pendiente:** el SMTP/SPF/DKIM del envío
-real; `integration/`, `docs/operations/runbook.md` (§8.8),
+**sin build ni despliegue reales**. **Hecho tras la 7:** `docs/operations/runbook.md` (§8.8, 6 procedimientos)
+e `integration/` (ya no está vacío: 57 assertions contrato↔rutas↔clientes).
+**Pendiente:** el SMTP/SPF/DKIM del envío real,
 `docs/investigation-phases/` (fase 9), el build real de imágenes + despliegue
 en la VM + Cloudflare + UptimeRobot, y las fases 8-9.
 
@@ -121,12 +122,22 @@ en la VM + Cloudflare + UptimeRobot, y las fases 8-9.
   API (httr2 *mockeado*) y Redis; `test-routes.R` arranca el servicio **y un
   stub de la API** en dos procesos hijo con `callr` y les dispara de verdad.
   Redis debe estar en pie (si no, se salta); no necesita la API.
-- `integration/` en la raíz → paquete R propio de tests de **integración** API↔UI
-  (extensión al árbol §1.3; el doc solo contempla `test-contract`, `test-api`,
-  `test-shiny`, `test-share` en el CI — añadir `test-integration` al crear el CI).
-  Hoy está **vacío** (solo `.gitkeep`): aún no tiene `DESCRIPTION` ni `tests/`.
-- `app/`, `api/` y `share/` sí tienen su `DESCRIPTION` y su `tests/` (ver
-  `docs/REPO_DECISION.md`); `integration/` repetirá ese patrón al nacer.
+- `integration/` en la raíz → paquete R propio de tests de **integración**
+  API↔UI (extensión al árbol §1.3; el doc solo contempla `test-contract`,
+  `test-api`, `test-shiny`, `test-share` en el CI — el job `test-integration`
+  de `.github/workflows/ci.yml` existe y está guardado por si `integration/`
+  vuelve a vaciarse). **Comprueba que las tres descripciones del sistema
+  coinciden**: las rutas que `api/plumber.R` registra vs `contract/openapi.yaml`,
+  las 3 de `share/R/routes.R` vs `share.openapi.yaml`, y los caminos que
+  llaman `app/R/api_client.R` y `share/R/api_client.R` (con `{param}` vs
+  `{id}` normalizados). **57 assertions.**
+  - Deja **escrita** una deriva real: §5.2 y el contrato listan 18 endpoints y
+    la API registra 16 — `/trips/sample` y `/zones/geojson` no existen y no
+    tienen cliente (§6.1.3 hace que la app lea las zonas del volumen). El test
+    exige que ese diferencial sea exactamente esa pareja, así que falla en
+    cuanto alguien los implemente o los borre del contrato.
+- Los cuatro (`app/`, `api/`, `share/`, `integration/`) tienen su
+  `DESCRIPTION` y su `tests/` (ver `docs/REPO_DECISION.md`).
 
 ## `mod_share`: los botones y el email de Results (6.5, 7.3, 7.4)
 - `app/R/modules/mod_share.R` vive **dentro** de `mod_results` (igual que
@@ -187,6 +198,11 @@ en la VM + Cloudflare + UptimeRobot, y las fases 8-9.
   stub suyo. Arrancarlo a mano (cwd = raíz):
   `nix-shell share/default.dev.nix --run "Rscript share/plumber.R"` →
   escucha en `SHARE_PORT` (8020) e imprime la URL base y el RSS.
+- Tests de **integración** (cwd = `integration/`, en el shell **raíz**):
+  `nix-shell ../default.nix -A shell --run "Rscript tests/testthat.R"` →
+  **57 PASS**. No necesita ningún servicio: son las tres descripciones del
+  sistema (contrato ↔ rutas registradas ↔ caminos de los clientes) mirándose
+  una a la otra.
 - Test de flujo (`test-shinytest2.R`, fases 4-6): levanta `dev/mock_api.R` en un
   puerto aleatorio, arranca la app real en Chromium headless y recorre
   Setup → semilla → modal → Trips → todas las decisiones hasta cerrar la
@@ -467,7 +483,7 @@ Construir y pushear imágenes (lo hace CI), desplegar en la VM (faltan los
 secretos `VM_HOST`, `VM_USER`, `VM_SSH_KEY`), la regla de caché de
 `/share/*.png` en Cloudflare y los registros SPF/DKIM/DMARC (dashboard), el
 monitor de disponibilidad, el swap de 2 GB de la VM (§1.1) y
-`docs/operations/runbook.md` (§8.8).
+`docs/operations/runbook.md` (§8.8, ya creado).
 
 ### Anotación sobre §1.0
 

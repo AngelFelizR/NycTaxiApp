@@ -124,6 +124,31 @@ service at once.
   - The three `default.prod.nix` variants that were still missing, plus a root
     `.dockerignore`.
 
+- **`docs/operations/runbook.md` (§8.8)** — the living operations document,
+  starting with the four procedures the master document asks for and adding
+  two we already know from the code: disk full (the alert, then what to prune
+  and in which order, and why `docker volume prune` is never the answer), PII
+  erasure on request (§9.1, including that backups keep the address for 28
+  days and `ip_hash` is not something we can erase by), rotating
+  `API_INTERNAL_KEY` (restart order, because ShinyProxy interpolates it into
+  containers that are already running), ShinyProxy not delivering
+  `X-Client-IP` (walk the three hops, and point at the §5.4 Plan B rather
+  than improvising), the API wedged in `setup` (libgomp/`futex_wait`), and
+  `share/` answering 503. Plus a short routine-checks list.
+- **`integration/` is no longer an empty skeleton.** A real package with a
+  `DESCRIPTION` and 57 assertions that compare the three descriptions of the
+  system: every route `api/plumber.R` registers against `contract/openapi.yaml`,
+  the three public routes of `share/R/routes.R` against
+  `share.openapi.yaml`, and every path `app/R/api_client.R` and
+  `share/R/api_client.R` actually calls against both (parameter names are
+  normalised, since the client only knows `experiment_id` where the contract
+  says `{id}`). **It writes down a real divergence instead of hiding it:**
+  section 5.2 and the contract list 18 endpoints while the API registers 16 —
+  `/trips/sample` and `/zones/geojson` were never built and have no client
+  (6.1.3 makes the app preload zones from the data volume instead). The test
+  requires that difference to be exactly that pair, so it fails the moment
+  someone implements them or drops them from the contract.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
