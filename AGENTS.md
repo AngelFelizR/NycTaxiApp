@@ -24,8 +24,14 @@ modal único de `resume_code`; `mod_header`, `mod_confirm_modal` y un
 `mod_results` mínimo; estado de sesión en `state.R` (reenvío de `X-Client-IP`);
 arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
 `app/dev/mock_api.R` y 92 assertions (unit + flujo `shinytest2` en Chromium).
-**Pendiente:** `share/`, `infra/`, el CI y las imágenes de despliegue
-(§14, fases 5-9).
+**Split de dependencias Nix hecho:** `nix/pkgs-app.nix` + `nix/r-app.nix` para
+la UI, `nix/test-tools.nix` solo con el navegador de los tests, `system.nix`
+de vuelta a lo genérico (sin `chromium`) y `r-dev.nix` sin `devtools`/
+`roxygen2` (ver la sección de Nix).
+**Pendiente:** fase 5 (`mod_trip_card`, `mod_sensitivity`, atajos, barra de
+*pending time*) y fase 6 (`mod_results` completo, `share/`) dentro de `app/`;
+luego `infra/`, `integration/`, `docs/operations/runbook.md` (§8.8),
+`docs/investigation-phases/` (fase 9) y las imágenes/CI (§14, fases 7-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -37,13 +43,27 @@ arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
   producción depende de los de las subcarpetas.
 - **Nix (§1.2.3 + decisión):** los módulos viven en `nix/` de la raíz y
   `default.nix` raíz los importa a todos; los `default.*.nix` de cada servicio
-  importan solo los suyos. **Pins separados para la API:** ya existen
-  `nix/pkgs-api.nix` (nixpkgs **2025-12-02**, R 4.5.2) y `nix/r-api.nix` —
-  consumidos por `api/default.dev.nix` / `api/default.prod.nix`. **Todavía no
-  creados:** `nix/pkgs-app.nix` / `nix/r-app.nix` (UI): hoy la raíz usa un único
-  pin en `nix/pkgs.nix` (+ `r-dev.nix`, `r-geo.nix`, `r-plotting.nix`,
-  `r-shiny.nix`, `system.nix`, pin 2026-09-28). Separarlos al tocar la UI
-  (fase 7); no reescribir los ficheros actuales sin decidirlo antes.
+  importan solo los suyos. **Pins separados (hecho):**
+  `nix/pkgs-api.nix` (nixpkgs **2025-12-02**, R 4.5.2, la que entrenó los
+  modelos) para la API y `nix/pkgs-app.nix` (**2026-09-28**) para la UI. Hoy
+  apuntan al mismo tarball, así que **nada se reconstruye** (`fetchTarball`
+  deriva la store path del URL: ambas dan el mismo `R-4.6.1`), pero ya son el
+  punto de cruce para moverlos por separado.
+  **Parametrización:** `system.nix`, `r-shiny.nix`, `r-geo.nix`,
+  `r-plotting.nix` y `r-dev.nix` son funciones `{ pkgs ? import ./pkgs.nix }:` —
+  `nix-build` auto-invoca los defaults, así que **las capas del Dockerfile no
+  cambiaron**; el shell raíz pasa `pkgs.nix` y `app/default.dev.nix` pasa
+  `pkgs-app.nix`.
+  **Agregados:** `nix/r-app.nix` = la UI entera en una expresión
+  (`nix-build nix/r-app.nix`, lo que consumirá la imagen de la fase 7) ·
+  `nix/test-tools.nix` = **solo** el navegador de `shinytest2`.
+  **Sin dependencias huérfanas:** `system.nix` es genérico (R, locales, fuentes)
+  y de ahí salió `chromium` (**1,3 GB**: 3701 → 2428 MB de cierre), de modo que
+  ninguna imagen que reutilice esa capa herede un navegador que nunca ejecuta;
+  `r-dev.nix` perdió `devtools`/`roxygen2` (75 MB: la app no es un paquete, no
+  tiene `NAMESPACE` ni `man/`). El shell raíz excluye `r-api.nix`,
+  `r-app.nix` y `test-tools.nix`; los `default.prod.nix` de ambos servicios
+  siguen **sin crear** (fase 7).
 - Cambiar un pin invalida solo las capas Docker de ese servicio; cambiar
   `nix/pkgs*.nix` afecta a las capas que lo usen — hacerlo conscientemente.
 - Un solo semver y `CHANGELOG.md`; CI con `paths:` por servicio (§8.6).
@@ -80,7 +100,9 @@ arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
 - `integration/` en la raíz → paquete R propio de tests de **integración** API↔UI
   (extensión al árbol §1.3; el doc solo contempla `test-contract`, `test-api`,
   `test-shiny`, `test-share` en el CI — añadir `test-integration` al crear el CI).
-- Cada paquete tiene su propio `DESCRIPTION` y `tests/` (ver `docs/REPO_DECISION.md`).
+  Hoy está **vacío** (solo `.gitkeep`): aún no tiene `DESCRIPTION` ni `tests/`.
+- `app/` y `api/` sí tienen su `DESCRIPTION` y su `tests/` (ver
+  `docs/REPO_DECISION.md`); `share/`, al nacer en la fase 6, repetirá ese patrón.
 
 ## La UI vive en `app/`
 `app/` contiene la app Shiny completa: `app.R`, `R/`, `www/`, `tests/`, `dev/`
@@ -97,17 +119,22 @@ arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
   raíz y R solo lo carga si el cwd es la raíz.
 
 ## Comandos (cwd = `app/` salvo indicación)
-- Tests UI: `Rscript tests/testthat.R`. NO `test_check()`/`devtools::test()`:
-  no es un paquete instalado; `helper-load.R` hace `source()` a mano de todo
-  `R/*.R` y `R/modules/*.R` (el orden importa).
+- Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` →
+  **92 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
+  paquete instalado; `helper-load.R` hace `source()` a mano de todo `R/*.R` y
+  `R/modules/*.R` (el orden importa). En el shell **raíz** salen
+  **82 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
+  de flujo se salta con un mensaje que apunta al shell correcto.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
-- Tests de API sin servidor: `httr2::with_mocked_responses()` (`test-api_client.R`).
+- Tests del **cliente** API sin servidor: `httr2::with_mocked_responses()`
+  (`app/tests/testthat/test-api_client.R`) — no confundir con los de la API.
 - Test de flujo (`test-shinytest2.R`, fase 4): levanta `dev/mock_api.R` en un
   puerto aleatorio, arranca la app real en Chromium headless y recorre
   Setup → modal → Trips → aceptar viaje, más el reenvío de `X-Client-IP`.
-  Requiere `chromium` en el PATH (`nix/system.nix`) y `NOT_CRAN=true`
-  (`AppDriver` se niega a correr si testthat cree que estamos en CRAN); se
-  salta solo si no hay navegador.
+  Requiere `chromium` (`nix/test-tools.nix`, presente en
+  `app/default.dev.nix` **no** en el shell raíz) y `NOT_CRAN=true`
+  (`AppDriver` se niega a correr si testthat cree que estamos en CRAN; el
+  shell y el propio test lo fijan).
 - Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
   `Rscript tests/testthat.R` (477 assertions; Postgres y Redis reales del
   compose raíz — levantar `docker compose up -d` antes). El único skip es
@@ -138,8 +165,11 @@ arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
 - Datos y Redis: el compose monta `${DATA_DIR}:/data:ro` (parquet de la semana
   + `ZonesShapes.qs2`, `DATA_DIR` en `.env`) y levanta `redis:7`
   (`nyctaxi-redis`); la API lee `DATA_DIR` y `REDIS_HOST`.
-- Stub local de la API: `Rscript dev/run_mock_api.R` (plumber2, puerto 8000);
-  escrito contra la sintaxis de anotaciones de plumber2 y **nunca ejecutado**.
+- Stub local de la API: `Rscript dev/run_mock_api.R` (plumber2, **puerto
+  8010**, API programática `api_get`/`api_post`/`api_run`). **Ya se ejecuta:**
+  `test-shinytest2.R` lo levanta en un puerto aleatorio; a mano sirve para
+  probar la UI sin modelos ni base de datos. El endpoint real sigue siendo
+  `api/plumber.R`.
 - Contenedor de desarrollo (cwd = raíz): `./setup.sh` (`-np` para no hacer pull).
   Hoy la imagen solo levanta sshd (host :2222, repo en `/root/NycTaxiApp`): es el
   entorno de desarrollo, **no** las imágenes de despliegue del §1.1.
@@ -176,13 +206,28 @@ Para reevaluar o validar cualquier código R, siempre este flujo:
 4. **Entorno Nix dentro del contenedor:**
    - General: `nix-shell` en la raíz (`default.nix -A shell`, ya horneado en la imagen).
    - Por subcarpeta: `nix-shell api/default.dev.nix` · `nix-shell app/default.dev.nix`
-     (variantes prod análogas). Con el pin de nixpkgs correspondiente; el primero
-     que se use puede descargar el tarball (la imagen solo hornea el pin raíz).
+     (variantes `default.prod.nix` **sin crear**: fase 7). Con el pin de
+     nixpkgs correspondiente; el primero que se use puede descargar el
+     tarball (la imagen solo hornea el pin raíz), y `app/default.dev.nix`
+     descarga `chromium` la primera vez (~1,3 GB desde el binario cache).
 5. **Validar dentro de ese shell:** `Rscript tests/testthat.R` (en `app/` o en
    `api/`), el mock API, o cualquier chequeo de sintaxis/cargas. Si R falla aquí
    o el shell no levanta, el problema es del entorno Nix, no del código.
 
 Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar código.
+
+## Cómo arrancar la app a mano (contenedor, cwd = `app/`)
+- `nix-shell default.dev.nix --run 'Rscript -e "shiny::runApp(\".\", port = 3838)"'`
+  (o `Rscript app/app.R` desde la raíz). Debe imprimir `Listening on ...` en
+  **< 3 s** — criterio de la fase 4; medirlo si se toca el arranque.
+- Requiere el API real en `127.0.0.1:8000` y `.env` en la raíz (la app lo lee
+  con `load_env_file()` solo si la variable no está ya puesta): `TAXI_API_URL`
+  y `API_INTERNAL_KEY` son los dos que usa.
+- Sin API la app **arranca igual** y falla al primer clic con una notificación:
+  los daemons mirai arrancan perezosos en la primera llamada
+  (`ensure_daemons()` en `R/utils.R`) y `ggplot2` se adjunta en el primer
+  gráfico (`ensure_ggplot2()`); mover cualquiera de los dos al arranque
+  devuelve el tiempo a ~4 s y rompe el criterio de arriba.
 
 ## Cómo habla la UI con la API
 - `app/R/api_client.R` es la **única** ficha que conoce rutas/payloads y debe
@@ -190,6 +235,10 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - Todo el HTTP pasa por `api_async()` (mirai) + `ExtendedTask` +
   `bind_task_button`; resultados con `task_result()`. Nunca httr2 directo en un
   observer. URL base: `TAXI_API_URL` (defecto `http://127.0.0.1:8000`).
+- El estado de la sesión vive en `R/state.R` (`estado`, un `reactiveValues`
+  **por sesión**, nunca en globales — §6.1.5): IP del cliente, `resume_code`
+  (una sola vez), el `DayState` más reciente, `model_progress` y el resultado.
+  `estado_ctx(estado)` construye el contexto de cada llamada.
 - El catálogo de los 18 endpoints (`X-Internal-Key`, `X-Resume-Code`, rate
   limit) está en §5.2 y en `contract/openapi.yaml`, que es lo que el cliente
   implementa. `R/modules/mod_results.R` existe como panel mínimo de Results
