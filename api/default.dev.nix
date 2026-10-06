@@ -11,7 +11,9 @@ in pkgs.mkShell {
   # Single merged library dir for every API package (buildEnv), in front of
   # whatever the R wrapper would add.
   R_LIBS_SITE = "${rApi}/library";
-  buildInputs = [ pkgs.R rApi ];
+  # testthat lives here rather than in nix/r-api.nix: that module is also the
+  # production image's layer, and no deployment runs a test (phase 7).
+  buildInputs = [ pkgs.R rApi pkgs.rPackages.testthat ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
     then "${pkgs.glibcLocales}/lib/locale/locale-archive"

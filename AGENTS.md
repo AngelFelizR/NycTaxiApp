@@ -42,10 +42,13 @@ la precedencia de §3.10. **Servicio `share/` hecho** (ver su sección): las 3
 rutas de `contract/share.openapi.yaml`, 150 assertions y arranque verificado.
 **Fase 6 entera hecha:** `mod_share` (Download PNG / Copy link / X /
 LinkedIn + el segundo prompt de email de §6.5) montado en `mod_results`,
-`api_share_email` y el mock de `/share-email`. **Pendiente:** el SMTP/SPF/DKIM
-del envío real; luego `infra/`, `integration/`,
-`docs/operations/runbook.md` (§8.8), `docs/investigation-phases/` (fase 9) y
-las imágenes/CI (§14, fases 7-9).
+`api_share_email` y el mock de `/share-email`. **Fase 7 (config) hecha:** ver su
+sección — `docker-compose.prod.yml`, `infra/`, los3 Dockerfiles multi-stage,
+los3 `default.prod.nix` y `.github/workflows/ci.yml`, todo validado pero
+**sin build ni despliegue reales**. **Pendiente:** el SMTP/SPF/DKIM del envío
+real; `integration/`, `docs/operations/runbook.md` (§8.8),
+`docs/investigation-phases/` (fase 9), el build real de imágenes + despliegue
+en la VM + Cloudflare + UptimeRobot, y las fases 8-9.
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -76,8 +79,11 @@ las imágenes/CI (§14, fases 7-9).
   ninguna imagen que reutilice esa capa herede un navegador que nunca ejecuta;
   `r-dev.nix` perdió `devtools`/`roxygen2` (75 MB: la app no es un paquete, no
   tiene `NAMESPACE` ni `man/`). El shell raíz excluye `r-api.nix`,
-  `r-app.nix` y `test-tools.nix`; los `default.prod.nix` de ambos servicios
-  siguen **sin crear** (fase 7).
+  `r-app.nix` y `test-tools.nix`. **Fase 7:** existen los tres
+  `default.prod.nix` (`api/`, `app/`, `share/`); `nix/r-app.nix` acepta
+  `withDev = false` para que la imagen no arrastre `r-dev.nix`, y
+  `testthat` salió de `nix/r-api.nix` (es la capa de la imagen) para vivir
+  en `api/default.dev.nix`.
 - Cambiar un pin invalida solo las capas Docker de ese servicio; cambiar
   `nix/pkgs*.nix` afecta a las capas que lo usen — hacerlo conscientemente.
 - Un solo semver y `CHANGELOG.md`; CI con `paths:` por servicio (§8.6).
@@ -190,10 +196,12 @@ las imágenes/CI (§14, fases 7-9).
   (`AppDriver` se niega a correr si testthat cree que estamos en CRAN; el
   shell y el propio test lo fijan).
 - Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
-  `Rscript tests/testthat.R` (477 assertions; Postgres y Redis reales del
-  compose raíz — levantar `docker compose up -d` antes). El único skip es
-  `test-outcome.R` cuando `MODELS_DIR/ReferenceDistribution.qs2` está
-  instalado.
+  `Rscript tests/testthat.R` — **477 PASS + 1 SKIP** con modelos y datos
+  montados, y **472 PASS + 1 SKIP** sin ellos (verificado: con
+  `TAXI_MODELS_DIR=/nonexistent TAXI_DATA_DIR=/nonexistent`; el único skip
+  es `test-sensitivity.R` "dataset not mounted"). **El CI corre sin modelos**
+  así que no descarga los 534 MB del release. Requiere Postgres y Redis reales
+  del compose raíz — levantar `docker compose up -d` antes.
 - Smoke de la API (contenedor): `bash api/dev/smoke.sh` (28 casos con timings;
   sensibilidad cold/hit/mobile incluidos).
 - E2E de experimentos (contenedor): `bash api/dev/e2e_experiments.sh <ip>`
@@ -260,7 +268,8 @@ Para reevaluar o validar cualquier código R, siempre este flujo:
 4. **Entorno Nix dentro del contenedor:**
    - General: `nix-shell` en la raíz (`default.nix -A shell`, ya horneado en la imagen).
    - Por subcarpeta: `nix-shell api/default.dev.nix` · `nix-shell app/default.dev.nix`
-     (variantes `default.prod.nix` **sin crear**: fase 7). Con el pin de
+     · `nix-shell share/default.dev.nix` (y las variantes `default.prod.nix`,
+     que dejan fuera las herramientas de test). Con el pin de
      nixpkgs correspondiente; el primero que se use puede descargar el
      tarball (la imagen solo hornea el pin raíz), y `app/default.dev.nix`
      descarga `chromium` la primera vez (~1,3 GB desde el binario cache).
@@ -389,6 +398,91 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
   `share/render_png.R` + `share/render_html.R`. El hex literal ya **no existe**
   en `app/R/` ni en `share/R/`: `grep -rn "6d5dfc\|8b7dff" app/R share/R` debe
   volver vacío.
+
+## Fase 7: infra y despliegue (§1.0, §1.1, §8)
+
+**Todo esto está escrito y validado, pero NINGUNA imagen se ha construido ni
+nada se ha desplegado.** Lo que sigue es lo que existe y cómo se verificó.
+
+- **`docker-compose.prod.yml` (raíz) es un fichero INDEPENDIENTE**, no un
+  override. Compose **suma** `ports:` y `networks:` al apilar ficheros, así
+  que `-f docker-compose.yml -f docker-compose.prod.yml` habría publicado
+  2222/5432/6379 en producción, justo lo que §9.3 y el smoke test de fase 7
+  prohíben (`docker ps` solo puede publicar 80 y 443). Se levanta con
+  `docker compose -f docker-compose.prod.yml up -d`.
+  - Las tres redes llevan **`name:` fijado**: sin eso compose las renombra a
+    `nyctaxi_nyctaxi_api_net` y el `container-network` de ShinyProxy no la
+    encuentra (§1.0 las llama `nyctaxi_*_net`).
+  - Límites de §1.1, `shm_size: 2g` en la API (el `mori` hace mmap en
+    `/dev/shm`, 119 MB), `logging json-file 500m×3`, `restart: unless-stopped`
+    y `ENV=production` (§5.7: el `.env` es compartido con dev).
+- **`infra/nginx/nginx.conf`** (+ `html/capacity-full.html`, `snippets/`):
+  solo enruta a ShinyProxy y a `share`; `/api/` → 404; `proxy_intercept_errors`
+  + `error_page 503` → `capacity-full.html` (servido con `internal;`, si no
+  volvería a entrar en `location /` y se proxearía a ShinyProxy); 10 r/s para
+  `/share/` y `/waitlist`; `set_real_ip_from` con los rangos de Cloudflare.
+  **`nginx -t` pasa sin avisos** — ojo: `text/html` en `gzip_types` es
+  redundante y nginx avisa.
+- **`infra/shinyproxy/application.yml`** (§8.3): `max-total-instances: 10`,
+  `allow-container-re-use: true`, `container-network: nyctaxi_api_net`, el
+  volumen de datos en solo lectura y las tres variables que el contenedor
+  Shiny necesita (`TAXI_API_URL`, `API_INTERNAL_KEY`, `SHARE_BASE_URL`).
+- **`infra/scripts/`** (los cuatro pasan `shellcheck`):
+  `backup.sh` (§8.5: `pg_dump -Fc`, sha256, retención 28 d, `/backups` 700),
+  `restore_test.sh` (restaura en un contenedor desechable y compara el nº de
+  tablas — un backup que nadie ha restaurado no es un backup),
+  `disk_check.sh` (cron horario, correo SMTP si ≥80 %, cooldown de 6 h) y
+  `fetch-assets.sh` (§4.5: baja del release y **verifica SHA-256**, idempotente,
+  **aborta sin tocar nada** si la verificación falla).
+- **`.github/workflows/ci.yml`** (§8.6): `test-contract` (spectral en docker),
+  `test-api` (Postgres y Redis como *service containers* — ADR 0001, no
+  testcontainers), `test-shiny`, `test-share`, `test-integration` (guardado:
+  `integration/` sigue vacío), `build-{api,shiny,share}` → GHCR y `deploy`.
+  Filtrado por servicio con `dorny/paths-filter`. Los builds van en
+  `ubuntu-24.04-arm` porque la VM es ARM y un closure de Nix bajo QEMU no cabe
+  en un job. **Validado con `actionlint` (0 errores); nunca se ha ejecutado.**
+- **`api/Dockerfile`, `app/Dockerfile`, `share/Dockerfile`**: multi-stage sobre
+  `nixos/nix:2.35.2`. Etapa 1 junta el *closure* de Nix (`nix-store -qR`) y lo
+  tarballa; etapa 2 lo extrae y copia los enlaces `/opt/*`. El layout
+  `WORKDIR /app` + `COPY <svc> /app/<svc>/` + `COPY shared/ /app/shared/` no
+  es capricho: `root` se calcula como el padre del servicio y
+  `R/shared_config.R` busca `../shared`. **`docker build --check` pasa en los
+  tres; no se han construido.**
+- **`api|app|share/default.prod.nix`** (las variantes que faltaban) y
+  **`.dockerignore`**.
+
+### Bloqueos del primer despliegue (fuera de este repo)
+
+- El release **`v0.0.1-data` no publica `SHA256SUMS`** → `fetch-assets.sh`
+  aborta siempre. Es lo que §4.5 pide, pero hay que subir el manifiesto
+  (`cd <ficheros> && sha256sum * > SHA256SUMS`).
+- El release **no tiene `ReferenceDistribution.qs2`** → `/finish` responde 503
+  sin él (ver "Experimentos"). Se genera con
+  `tools/build_reference_distribution.R` (~75 min) y hay que subirlo **con** su
+  hash.
+
+### No ejecutable desde aquí
+
+Construir y pushear imágenes (lo hace CI), desplegar en la VM (faltan los
+secretos `VM_HOST`, `VM_USER`, `VM_SSH_KEY`), la regla de caché de
+`/share/*.png` en Cloudflare y los registros SPF/DKIM/DMARC (dashboard), el
+monitor de disponibilidad, el swap de 2 GB de la VM (§1.1) y
+`docs/operations/runbook.md` (§8.8).
+
+### Anotación sobre §1.0
+
+§1.0 dice que ShinyProxy "no recibe `API_INTERNAL_KEY`", pero §8.3 inyecta
+`${API_INTERNAL_KEY}` en los contenedores que él crea — sin el valor en su
+entorno el inyectado saldría vacío y toda petición de la UI devolvería 403.
+Se interpreta como "no es un cliente de la API". Divergencia anotada en
+`CHANGELOG.md`; el documento no se toca.
+
+### Seguimiento pendiente
+
+`nix/r-shiny.nix` sigue metiendo `shinytest2` en el set de runtime, así que
+la imagen de la UI lo arrastra (el navegador no: `chromium` vive en
+`nix/test-tools.nix`). Moverlo ahí exige rehacer `app/default.dev.nix`; lo
+mismo aplica a `plumber2`, que la app solo usa en `dev/mock_api.R`.
 
 ## Fuente de verdad y prioridad entre documentos
 - **Documento maestro = decisiones de arquitectura; no se edita.** Si el código

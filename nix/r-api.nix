@@ -75,8 +75,9 @@ in
       embed
       timeDate
 
-      # Tests
-      testthat
+      # NOTE: testthat is NOT here. This module is also built by Dockerfile
+      # layer 9b for the production image, and no deployment ever runs a test;
+      # api/default.dev.nix adds it to the development shell instead.
       httr2
     ]);
   }

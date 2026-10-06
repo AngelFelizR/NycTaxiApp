@@ -6,7 +6,12 @@
 #
 # Components take `pkgs` as an argument so this file can pin them to
 # pkgs-app.nix while the root dev shell passes ./pkgs.nix instead.
-{ pkgs ? import ./pkgs-app.nix }:
+#
+# `withDev` separates what the app RUNS from what it is TESTED with: the
+# production image (app/default.prod.nix, phase 7) drops r-dev.nix, whose
+# testthat/callr/plumber2 the app never loads at runtime -- plumber2 is only
+# there for dev/mock_api.R, which no deployment ships.
+{ pkgs ? import ./pkgs-app.nix, withDev ? true }:
 let
   rShiny     = import ./r-shiny.nix     { inherit pkgs; };
   rGeo       = import ./r-geo.nix       { inherit pkgs; };
@@ -18,5 +23,6 @@ let
 in
   pkgs.buildEnv {
     name = "r-app-pkgs";
-    paths = [ rShiny rGeo rPlotting rDev rShared ];
+    paths = [ rShiny rGeo rPlotting rShared ]
+            ++ (if withDev then [ rDev ] else [ ]);
   }

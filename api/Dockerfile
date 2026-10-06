@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1
+###############################################################################
+# Private API image (master doc 1.1, 4.5, 5, 8.6).
+#
+# Multi-stage, same shape as share/Dockerfile. The API is the only service
+# that gets the models and the dataset, and it gets them as read-only mounts
+# at runtime (4.5: they are 345 MB and never go in an image).
+#
+#   docker build -f api/Dockerfile -t ghcr.io/angelfelizr/nyc-taxi-api:latest .
+#
+# The pin matters: nix/pkgs-api.nix is nixpkgs 2025-12-02 with R 4.5.2, the
+# environment the models were trained in. Building the API against the UI's
+# pin (4.6.1) would change nothing here but is not what was validated, so
+# both system.nix and r-api.nix are instantiated against pkgs-api.nix.
+#
+# nix/r-api.nix deliberately carries no testthat: this file is the image's
+# layer and no deployment runs a test.
+###############################################################################
+
+ARG NIX_IMAGE=nixos/nix:2.35.2
+
+# ─────────────────────────────────────────────────────────── stage 1: closure
+FROM ${NIX_IMAGE} AS build
+
+RUN printf '%s\n' \
+      "substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org" \
+      "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=" \
+      >> /etc/nix/nix.conf
+
+WORKDIR /build
+COPY nix/ ./nix/
+
+RUN nix-build -E '(let pkgs = import ./nix/pkgs-api.nix; in import ./nix/system.nix { inherit pkgs; })' -o /out-system && \
+    nix-build nix/r-api.nix -o /out-rapi && \
+    nix-store -qR /out-system /out-rapi | sort -u > /closure
+
+RUN tar -C / -czf /closure.tar.gz -T /closure
+
+# ────────────────────────────────────────────────────────── stage 2: runtime
+FROM ${NIX_IMAGE} AS runtime
+
+COPY --from=build /closure.tar.gz /tmp/closure.tar.gz
+RUN tar -C / -xzf /tmp/closure.tar.gz && rm /tmp/closure.tar.gz
+
+COPY --from=build /out-system /opt/system
+COPY --from=build /out-rapi    /opt/r
+
+ENV PATH="/opt/system/bin:${PATH}" \
+    LOCALE_ARCHIVE="/opt/system/lib/locale/locale-archive" \
+    LANG="en_US.UTF-8" \
+    LC_ALL="en_US.UTF-8" \
+    FONTCONFIG_FILE="/opt/system/etc/fonts/fonts.conf" \
+    FONTCONFIG_PATH="/opt/system/etc/fonts" \
+    XDG_DATA_DIRS="/opt/system/share:/opt/system/lib/X11/xkb" \
+    R_LIBS_SITE="/opt/r/library" \
+    # 4.1: read when R starts, not when the code runs -- a fork after libgomp
+    # built its pool deadlocks the trajectory child in futex_wait.
+    OMP_NUM_THREADS="1" \
+    OPENBLAS_NUM_THREADS="1" \
+    VECLIB_MAXIMUM_THREADS="1"
+
+# api/plumber.R resolves `root` as the parent of api/ and sources
+# file.path(root, "api", "R", ...) plus file.path(root, ".env"); the layout
+# mirrors the repository, and .env is absent on purpose (secrets arrive from
+# the compose env_file instead -- load_dotenv skips what is already set).
+WORKDIR /app
+COPY api/ /app/api/
+
+EXPOSE 8000
+CMD ["Rscript", "/app/api/plumber.R"]

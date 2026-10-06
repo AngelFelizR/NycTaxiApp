@@ -1,0 +1,49 @@
+# ShinyProxy configuration (master doc 8.3).
+#
+# Mounted read-only at /opt/shinyproxy/application.yml. The network name is
+# literal on purpose: docker-compose.prod.yml pins `name: nyctaxi_api_net`
+# so compose does not prefix it with the project name.
+#
+# The Shiny containers join nyctaxi_api_net ONLY -- they can reach the API but
+# never Postgres or Redis (1.0). ShinyProxy itself also sits on
+# nyctaxi_edge_net so Nginx can reach it, and on nyctaxi_api_net because
+# internal-networking requires it.
+
+proxy:
+  title: NYC Taxi Decision Simulator
+  hide-navbar: true
+  landing-page: /
+  authentication: none
+  container-backend: docker
+
+  docker:
+    internal-networking: true
+    container-network: nyctaxi_api_net
+
+  # Unauthenticated traffic is bounded by Nginx's rate limits and by the API's
+  # per-IP limits; these are the backstops for a session storm (1.1).
+  title-environment: false
+  max-instances: 10
+
+  specs:
+    - id: nyc-taxi-app
+      container-image: ghcr.io/angelfelizr/nyc-taxi-shiny:latest
+      port: 3838
+      # 1.1: 10 instances on a 12 GB VM, ceiling 12 only after the phase-8
+      # load test shows >= 2 GB of headroom.
+      max-total-instances: 10
+      seats-per-container: 1
+      # 6.1.5: a container may serve a different visitor next, so session
+      # state lives in reactiveValues and never in a global.
+      allow-container-re-use: true
+      container-memory-limit: 512m
+      container-cpu-limit: 0.5
+      container-volumes:
+        - "/srv/nyctaxi/data:/app/data:ro"
+      container-env:
+        TAXI_API_URL: "http://api:8000"
+        # The key is injected into the container; ShinyProxy never calls the
+        # API itself (see the note about 1.0 in CHANGELOG).
+        API_INTERNAL_KEY: "${API_INTERNAL_KEY}"
+        SHARE_BASE_URL: "https://nyctaxiapp.angelfeliz.com"
+        ENV: "production"

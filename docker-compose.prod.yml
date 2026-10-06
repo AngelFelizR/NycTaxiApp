@@ -1,0 +1,210 @@
+# Production compose -- the canonical deployment (master doc 1.0, 1.1, 8.1).
+#
+# STANDALONE, not an override of docker-compose.yml. The dev file publishes
+# 2222/5432/6379 and joins a dev network; compose *appends* `ports:` and
+# `networks:` when files are layered, so `-f docker-compose.yml -f this` would
+# leak them. Section 9.3 and the phase-7 smoke test require that `docker ps`
+# publishes 80 and 443 and nothing else, so this file carries the whole stack:
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Image builds (phase 7): .github/workflows pushes to GHCR; the deploy job
+# pulls them on the VM. `docker compose build` here works too but every image
+# builds Nix from the pins.
+#
+# Host prerequisites (not expressible in compose):
+#   - 2 GB of swap as a safety net (section 1.1).
+#   - /srv/nyctaxi/data read-only with the model and dataset files (15).
+#   - /srv/nyctaxi/models likewise; nothing is baked into the images (4.5).
+#   - /backups with mode 700 (8.5: the dumps contain PII).
+
+name: nyctaxi
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nyctaxi-nginx
+    restart: unless-stopped
+    ports:
+      # The only published ports in the whole stack (1.0).
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # The whole document root, so dropping demo.mp4 in needs no compose edit.
+      - ./infra/nginx/html:/usr/share/nginx/html:ro
+      - ./infra/nginx/snippets:/etc/nginx/snippets:ro
+      # certbot writes renewal state here; the cron is on the host (8.2).
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - shinyproxy
+      - share
+    networks:
+      - nyctaxi_edge_net
+    logging: &jsonlog
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "3"
+    mem_limit: 128m
+    cpus: 0.25
+
+  shinyproxy:
+    image: openanalytics/shinyproxy:3.2.4
+    container_name: nyctaxi-shinyproxy
+    restart: unless-stopped
+    volumes:
+      - ./infra/shinyproxy/application.yml:/opt/shinyproxy/application.yml:ro
+      # internal-networking + container-network require the API network (8.3).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # application.yml interpolates ${API_INTERNAL_KEY} into the Shiny
+      # containers. ShinyProxy never calls the API itself -- 1.0's "no recibe
+      # API_INTERNAL_KEY" means it is not an API client; without this the
+      # injected value would be empty and every request would 403.
+      API_INTERNAL_KEY: "${API_INTERNAL_KEY:?Set API_INTERNAL_KEY in .env}" 
+    networks:
+      - nyctaxi_edge_net
+      - nyctaxi_api_net
+    logging: *jsonlog
+    mem_limit: 512m
+    cpus: 0.5
+
+  api:
+    image: ghcr.io/angelfelizr/nyc-taxi-api:latest
+    container_name: nyctaxi-api
+    restart: unless-stopped
+    # NO ports: the API exists only on the private networks (1.0, 9.3).
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      # 5.7: production CORS allows only the public origin. .env is shared
+      # with development, so it has to be pinned here rather than inherited.
+      ENV: "production"
+      # libgomp reads this when R starts; a fork after OpenMP built its pool
+      # deadlocks the trajectory child (4.1, api/default.dev.nix).
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+    # mori mmaps the fitted policy into /dev/shm (119 MB); Docker's default
+    # 64 MB fails with ENOSPC -- the same reason the dev compose sets it.
+    shm_size: "2g"
+    volumes:
+      - /srv/nyctaxi/models:/models:ro
+      - /srv/nyctaxi/data:/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "Rscript -e \"httr2::req_perform(httr2::req_timeout(httr2::request('http://127.0.0.1:8000/health'), 3))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - nyctaxi_api_net
+      - nyctaxi_data_net
+    logging: *jsonlog
+    mem_limit: 1.5g
+    cpus: 1.0
+
+  share:
+    image: ghcr.io/angelfelizr/nyc-taxi-share:latest
+    container_name: nyctaxi-share
+    restart: unless-stopped
+    # NO ports: Nginx is the only way in (1.0).
+    expose:
+      - "8001"
+    env_file:
+      - .env
+    environment:
+      SHARE_HOST: "0.0.0.0"
+      SHARE_PORT: "8001"
+      # Over the private network, never the public hostname.
+      TAXI_API_URL: "http://api:8000"
+      REDIS_HOST: "redis"
+      SHARE_BASE_URL: "https://nyctaxiapp.angelfeliz.com"
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      # edge: Nginx reaches it. api_net: it calls GET /share-data and
+      # POST /waitlist. data_net: Redis only -- no POSTGRES_* (1.0).
+      - nyctaxi_edge_net
+      - nyctaxi_api_net
+      - nyctaxi_data_net
+    logging: *jsonlog
+    mem_limit: 256m
+    cpus: 0.25
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nyctaxi-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    # NO ports: private data network only (9.3).
+    command: ["postgres", "-c", "shared_buffers=256MB"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nyctaxi} -d ${POSTGRES_DB:-nyctaxi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - nyctaxi_data_net
+    logging: *jsonlog
+    mem_limit: 1g
+    cpus: 0.5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nyctaxi-redis
+    restart: unless-stopped
+    # NO ports: private data network only (9.3).
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nyctaxi_data_net
+    logging: *jsonlog
+    mem_limit: 256m
+    cpus: 0.25
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  # `name:` pins the literal name: compose would otherwise prefix these with
+  # the project name (nyctaxi_nyctaxi_api_net), and ShinyProxy's
+  # `container-network` plus section 1.0 both refer to nyctaxi_api_net.
+  #
+  # 1.0: Nginx talks to ShinyProxy and share; the API is never on this one.
+  nyctaxi_edge_net:
+    name: nyctaxi_edge_net
+    driver: bridge
+  # The only way to reach the API. ShinyProxy joins it because
+  # internal-networking requires it (8.3); the Shiny containers it spawns
+  # inherit it and nothing else, so they never see Postgres or Redis.
+  nyctaxi_api_net:
+    name: nyctaxi_api_net
+    driver: bridge
+  # api + share + postgres + redis. The Shiny containers are NOT here.
+  nyctaxi_data_net:
+    name: nyctaxi_data_net
+    driver: bridge

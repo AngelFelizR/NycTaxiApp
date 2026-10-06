@@ -84,6 +84,46 @@ service at once.
   `curve_labels()` si la carga vive en `app.R`. Solo funciona por el orden
   alfabético de `R/` (`constants` -> `shared_config` -> `state` -> `strings`).
 
+- **Phase 7 (infra), written and linted but never built or deployed.**
+  - `docker-compose.prod.yml` at the root: the canonical deployment, written as
+    a **standalone file rather than an override**. Compose *appends* `ports:`
+    and `networks:` across files, so layering it over the dev compose would
+    have published 2222/5432/6379 in production -- exactly what §9.3 and the
+    phase-7 smoke test forbid. Three networks with `name:` pinned (otherwise
+    compose renames them `nyctaxi_nyctaxi_api_net` and ShinyProxy's
+    `container-network` would not find them), the limits of §1.1, `shm_size: 2g`
+    for the API's `mori`, json-file logging 500m x 3 and `ENV=production`.
+  - `infra/nginx/`: `nginx.conf` routing only to ShinyProxy and `share` with
+    `/api/` answering 404, `proxy_intercept_errors` + `error_page 503` into a
+    `capacity-full.html` (demo slot, waitlist form posting JSON, self-reload
+    every 60 s), 10 r/s on `/share/` and `/waitlist`, Cloudflare's address
+    ranges via `set_real_ip_from`, and a WebSocket upgrade for Shiny.
+    `nginx -t` passes without warnings.
+  - `infra/shinyproxy/application.yml` (§8.3): `max-total-instances: 10`,
+    `allow-container-re-use`, `container-network: nyctaxi_api_net`, the data
+    volume read-only and the three variables a Shiny container needs.
+  - `infra/scripts/` -- four scripts, all passing `shellcheck`: `backup.sh`
+    (§8.5), `restore_test.sh` (restores into a throwaway container and
+    compares the table count), `disk_check.sh` (hourly cron, SMTP alert above
+    80% with a 6 h cooldown) and `fetch-assets.sh` (§4.5: downloads the release
+    and verifies SHA-256, idempotent, **aborts without touching anything** when
+    verification fails).
+  - `.github/workflows/ci.yml` (§8.6): `test-contract` (spectral in docker),
+    `test-api` (Postgres and Redis as *service containers* -- ADR 0001, not
+    testcontainers), `test-shiny`, `test-share`, a guarded `test-integration`,
+    `build-{api,shiny,share}` to GHCR and `deploy` with its exposure smoke
+    test. Per-service filtering with `dorny/paths-filter`; builds run on
+    `ubuntu-24.04-arm` because the VM is ARM and a Nix closure under QEMU does
+    not fit in a job. **Validated with `actionlint` (0 errors); never run.**
+  - `api/Dockerfile`, `app/Dockerfile`, `share/Dockerfile`: multi-stage on
+    `nixos/nix:2.35.2` -- stage 1 assembles the Nix closure with
+    `nix-store -qR` and tars it, stage 2 extracts exactly that. The
+    `WORKDIR /app` + `<service>` + `shared/` layout mirrors the repository
+    because `root` is computed as the parent of the service. `docker build
+    --check` passes on all three; **no image has been built**.
+  - The three `default.prod.nix` variants that were still missing, plus a root
+    `.dockerignore`.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -288,6 +328,22 @@ service at once.
   -- only where the literal lives. Both differences are recorded here rather
   than "fixed" in the master document, which is never edited (precedent: the
   asynchronous create vs §4.6).
+
+- **Nix split so no image ships what it never runs.**
+  `nix/r-app.nix` grew a `withDev` argument (default `true`, so the dev shell
+  is unchanged): `app/default.prod.nix` builds it with `withDev = false` and
+  the UI image therefore has no `testthat`, no `callr` and no `plumber2` --
+  the latter only ever served `dev/mock_api.R`, which no deployment ships.
+  `testthat` left `nix/r-api.nix` for `api/default.dev.nix`, because
+  `r-api.nix` *is* the API image's layer (Dockerfile 9b) and a deployment runs
+  no tests. Verified: the API suite still passes at 472 assertions with the
+  models and dataset hidden.
+
+- **Section 1.0 says ShinyProxy "does not receive `API_INTERNAL_KEY`", but 8.3
+  interpolates `${API_INTERNAL_KEY}` into the containers it creates.** Without
+  the value in its environment the injected one comes out empty and every
+  request from the UI would 403, so it is read as "ShinyProxy is not an API
+  client". Annotated here rather than corrected in the master document.
 
 ### Fixed
 

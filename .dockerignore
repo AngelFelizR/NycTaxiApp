@@ -1,0 +1,12 @@
+# Build context hygiene: every image builds from the repository root
+# (`docker build -f <svc>/Dockerfile .`), so whatever is here is sent to the
+# daemon on every build. None of it is needed by any stage.
+
+.git
+.gitignore
+.env
+result
+*.log
+.Rproj.user
+**/.DS_Store
+**/*~
