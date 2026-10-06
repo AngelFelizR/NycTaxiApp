@@ -145,21 +145,38 @@ test_that("Start The Day shows the one-time resume code in a modal", {
 
 # --- 4. Continue lands on Trips and the day becomes playable ----------------
 
-test_that("the day reaches Trips and becomes playable", {
+test_that("the day reaches Trips with its sidebar, clock bar and hints", {
   app$click(selector = "#confirm-continue")
 
   # app.R polls /state every second while status is "setup"; the mock flips to
   # in_progress on the second poll and only then offers a trip.
   has_text("#trips-current_time", "[0-9]{4}-[0-9]{2}-[0-9]{2}", timeout = 45000)
-  has_text("#trips-trip_miles", "[0-9.]+", timeout = 45000)
-  expect_true(visible("#trips-accept"))
+  has_text("#trips-card-trip_miles", "[0-9.]+", timeout = 45000)
+
+  # 6.5: the offer, the sidebar KPIs, the pending-time bar and the shortcut
+  # footer are all part of the screen, and the bar has been sized by shinyjs.
+  expect_true(visible("#trips-card-accept"))
+  expect_true(js_truthy("!!document.querySelector('.trips-sidebar')"))
+  expect_true(js_truthy("!!document.querySelector('.pending-bar')"))
+  expect_true(js_truthy(paste0(
+    "(function(){var e=document.querySelector('#trips-pending_fill');",
+    "return !!e && /%$/.test(e.style.width || '');})()")))
+  expect_true(visible(".kbd-footer"))
+  expect_true(js_truthy("!!document.querySelector('#trips-resume')"))
+
+  # 3.11: no running comparison against the model on this screen -- the
+  # agreement score is reserved for Results.
+  sidebar <- app$get_js("document.querySelector('.trips-sidebar').textContent")
+  expect_match(sidebar, "Earnings so far")
+  expect_match(sidebar, "Decisions")
+  expect_false(grepl("Following Policy", sidebar, fixed = TRUE))
 })
 
 # --- 5. accepting a trip advances the day ----------------------------------
 
 test_that("accepting a trip moves the simulated clock", {
   before <- app$get_text("#trips-current_time")
-  app$click(selector = "#trips-accept")
+  app$click(selector = "#trips-card-accept")
   app$wait_for_js(sprintf(
     "(function(){ var e = document.querySelector('#trips-current_time'); return !!e && e.textContent !== %s; })()",
     jsonlite::toJSON(before, auto_unbox = TRUE)
@@ -167,7 +184,50 @@ test_that("accepting a trip moves the simulated clock", {
   expect_true(nzchar(app$get_text("#trips-current_time")))
 })
 
-# --- 6. the app forwarded the client IP ------------------------------------
+# --- 6. the keyboard shortcuts preselect and confirm ------------------------
+
+key <- function(k) {
+  app$run_js(sprintf(
+    "document.dispatchEvent(new KeyboardEvent('keydown', {key: %s}));",
+    jsonlite::toJSON(k, auto_unbox = TRUE)
+  ))
+}
+
+test_that("the arrow keys preselect and Enter sends the decision", {
+  before <- app$get_text("#trips-current_time")
+
+  key("ArrowRight")
+  expect_true(js_truthy("!!document.querySelector('#trips-card-accept.preselected')"))
+  expect_false(js_truthy("!!document.querySelector('#trips-card-reject.preselected')"))
+
+  # Pressing again must clear it, never send anything by itself.
+  key("ArrowRight")
+  expect_false(js_truthy("!!document.querySelector('#trips-card-accept.preselected')"))
+  expect_equal(app$get_text("#trips-current_time"), before)
+
+  key("ArrowLeft")
+  expect_true(js_truthy("!!document.querySelector('#trips-card-reject.preselected')"))
+
+  # Enter confirms through exactly the same button a click would.
+  key("Enter")
+  expect_false(js_truthy("!!document.querySelector('.trip-actions .preselected')"))
+  app$wait_for_js(sprintf(
+    "(function(){ var e = document.querySelector('#trips-current_time'); return !!e && e.textContent !== %s; })()",
+    jsonlite::toJSON(before, auto_unbox = TRUE)
+  ), timeout = 30000)
+})
+
+test_that("the ? key opens the shortcuts dialog and Esc closes it", {
+  key("?")
+  has_text(".modal", "Keyboard shortcuts", timeout = 15000)
+  expect_true(js_truthy("!!document.querySelector('.modal')"))
+
+  key("Escape")
+  app$wait_for_js("!document.querySelector('.modal')", timeout = 15000)
+  expect_false(js_truthy("!!document.querySelector('.modal')"))
+})
+
+# --- 7. the app forwarded the client IP ------------------------------------
 
 test_that("the API received the X-Client-IP the app saw", {
   seen <- httr2::request(paste0(mock_url, "/__last")) |>

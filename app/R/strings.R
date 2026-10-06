@@ -95,18 +95,44 @@ label_pickup_zone <- "Pickup Zone"
 label_dropoff_zone <- "Drop-off Zone"
 label_pu_selector <- "Change Pickup Zone"
 label_do_selector <- "Change Drop-off Zone"
+label_zone_placeholder <- "Search a TLC zone"
+label_sensitivity_idle <- "Pick another pickup or drop-off zone to see how the decision boundary moves."
 btn_accept <- "Accept Trip"
 btn_reject <- "Reject Trip"
 btn_busy <- "Sending..."
 label_sensitivity <- "Model Results"
 label_sensitivity_plot <- "Decision boundary by zone"
 label_history <- "Cumulative pay"
+label_curve_user <- "You"
+label_curve_policy <- "Model"
+label_curve_baseline <- "Accept all"
 label_no_day <- "Start a day in the Setup tab first."
 label_no_trip <- "Waiting for the next trip..."
-label_pcu_pending <- "Accept or reject the trip above."
 label_model_accept <- "Accept trip"
 label_model_reject <- "Reject trip"
 label_trips_idle <- "The day is still being prepared. This can take up to two minutes."
+
+# Sidebar (6.5): KPIs plus the discrete button that shows the code again.
+# Deliberately no live % vs policy here: section 3.11 reserves any comparison
+# for Results, and a running agreement score would be exactly the pressure the
+# rule is meant to avoid.
+label_earnings <- "Earnings so far"
+label_decisions <- "Decisions"
+label_resume_code_btn <- "My resume code"
+modal_resume_title <- "Your resume code"
+
+# Keyboard shortcuts (6.5). The words live here so nothing user-visible is
+# written inline; the arrows are Font Awesome icons, not unicode literals.
+kbd_title <- "Keyboard shortcuts"
+kbd_arrow_left <- "preselect Reject"
+kbd_arrow_right <- "preselect Accept"
+kbd_enter <- "confirm the preselected option"
+kbd_question <- "open this dialog"
+kbd_escape <- "close this dialog and clear the preselection"
+kbd_note <- paste(
+  "A direct click or tap confirms the decision right away. The keys only",
+  "preselect, so a stray keypress never sends an irreversible decision."
+)
 
 # ---- results ---------------------------------------------------------------
 label_results_empty <- "No finished day yet."

@@ -96,3 +96,11 @@ app_options <- function() {
     default_location_id = DEFAULT_LOCATION_ID
   )
 }
+
+# Choices for the two sensitivity selectors: "-" keeps the original zone
+# (zone_or_null() maps it back to NULL for the API call).
+zone_select_choices <- function() {
+  ch <- zone_choices()
+  if (length(ch) == 0) return(c("-" = "-"))
+  c("-" = "-", ch)
+}

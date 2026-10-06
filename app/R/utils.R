@@ -114,3 +114,62 @@ line_plot <- function(history, series) {
          title = tools::toTitleCase(series)) +
     theme_minimal()
 }
+
+# --- adapters over the contract payloads, shared by trips and results ---------
+
+# DayState.history: an array of {step, user, policy, baseline} that may arrive
+# as a list of rows or already simplified into a data.frame.
+history_df <- function(history) {
+  if (is.data.frame(history)) {
+    return(data.frame(
+      step = as.numeric(history$step),
+      user = as.numeric(history$user),
+      policy = as.numeric(history$policy),
+      baseline = as.numeric(history$baseline)
+    ))
+  }
+  rows <- lapply(history, function(p) {
+    data.frame(step = as.numeric(p$step), user = as.numeric(p$user),
+               policy = as.numeric(p$policy), baseline = as.numeric(p$baseline))
+  })
+  if (length(rows) == 0) {
+    return(data.frame(step = numeric(), user = numeric(),
+                      policy = numeric(), baseline = numeric()))
+  }
+  do.call(rbind, rows)
+}
+
+# grid_original/grid_pu/grid_do: arrays of {trip_time_sec, driver_pay, prob}.
+grid_df <- function(grid) {
+  if (is.null(grid)) return(data.frame())
+  if (is.data.frame(grid)) {
+    return(data.frame(
+      trip_time_sec = as.numeric(grid$trip_time_sec),
+      driver_pay = as.numeric(grid$driver_pay),
+      prob = as.numeric(grid$prob)
+    ))
+  }
+  rows <- lapply(grid, function(p) {
+    data.frame(trip_time_sec = as.numeric(p$trip_time_sec),
+               driver_pay = as.numeric(p$driver_pay),
+               prob = as.numeric(p$prob))
+  })
+  if (length(rows) == 0) return(data.frame())
+  do.call(rbind, rows)
+}
+
+# Centroids of the requested LocationIDs, in WGS84, in the given order (the
+# caller colours pickup and drop-off differently, so the order matters).
+zone_points <- function(z, ids) {
+  ids <- ids[!is.na(ids) & !is.null(ids)]
+  if (length(ids) == 0) return(NULL)
+  sel <- z[as.character(z$LocationID) %in% as.character(ids), ]
+  if (nrow(sel) == 0) return(NULL)
+  pts <- suppressWarnings(sf::st_point_on_surface(sf::st_geometry(sel)))
+  coords <- sf::st_coordinates(pts)
+  sel$lng <- coords[, 1]
+  sel$lat <- coords[, 2]
+  ord <- match(as.character(ids), as.character(sel$LocationID))
+  sel <- sel[stats::na.omit(ord), ]
+  if (nrow(sel) == 0) NULL else sel
+}

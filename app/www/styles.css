@@ -7,3 +7,87 @@
   background: #ffd6d6;
   border-color: #d9534f;
 }
+
+/* ---- Trips sidebar (6.5): KPIs as plain rows, no value_box chrome ---- */
+.kpi-row {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .4rem 0;
+  border-bottom: 1px solid var(--taxi-border, #e3e6ea);
+}
+.kpi-row .kpi-label { color: #64748b; font-size: .85rem; }
+.kpi-row .kpi-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---- Pending time bar (6.5): the hours sit centred inside the bar ----
+   green > 4h, amber 2-4h, red < 2h. These are TIME colours, not performance
+   colours: section 3.11 forbids any comparative-performance indicator during
+   Trips, and section 6.5 mandates exactly these three for the clock.
+   The fill is translucent so the centred label keeps AA contrast on it. */
+.pending-bar {
+  position: relative;
+  height: 1.75rem;
+  border-radius: .875rem;
+  overflow: hidden;
+  background: var(--taxi-border, #e3e6ea);
+  margin: .5rem 0 1rem;
+}
+.pending-fill { height: 100%; transition: width .4s ease; }
+.pending-ok   { background: rgba(47, 158, 68, .45); }
+.pending-warn { background: rgba(224, 168, 0, .50); }
+.pending-low  { background: rgba(217, 83, 79, .50); }
+.pending-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .8rem;
+  font-weight: 700;
+  color: #1f2328;
+}
+
+/* ---- Accept/Reject: 44px minimum, and a visible preselection ----
+   The size lives on the wrapper rather than inline so the same rule serves
+   the keyboard preselection below. */
+.trip-actions { display: flex; gap: .75rem; }
+.trip-actions > * { flex: 1 1 0; }
+.trip-actions .btn { width: 100%; min-height: 44px; }
+.trip-actions .btn.preselected {
+  outline: 3px solid #6d5dfc;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(109, 93, 252, .25);
+}
+@media (pointer: coarse) {
+  .trip-actions .btn { min-height: 44px; font-size: 1.05rem; }
+}
+
+/* ---- Keyboard hint footer (6.5): hidden entirely on touch devices ---- */
+.kbd-footer {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding-top: .75rem;
+  border-top: 1px solid var(--taxi-border, #e3e6ea);
+  color: #64748b;
+  font-size: .85rem;
+}
+.kbd-footer .kbd-key {
+  display: inline-block;
+  min-width: 1.5rem;
+  padding: .1rem .4rem;
+  border: 1px solid var(--taxi-border, #e3e6ea);
+  border-bottom-width: 2px;
+  border-radius: .25rem;
+  background: #fff;
+  text-align: center;
+  font-family: var(--bs-font-monospace, monospace);
+  font-size: .8rem;
+}
+.kbd-footer .kbd-key svg { width: .8rem; height: .8rem; }
+.kbd-footer .kbd-sep::before { content: "\00b7"; color: #94a3b8; }
+@media (pointer: coarse) {
+  .kbd-hints, .kbd-footer { display: none !important; }
+}

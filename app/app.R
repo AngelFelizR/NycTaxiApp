@@ -40,6 +40,9 @@ ui <- page_navbar(
   fillable = FALSE,
   header = tagList(
     shinyjs::useShinyjs(),   # mod_confirm_modal copies the resume code with runjs()
+    # Keyboard shortcuts for Trips (6.5). Loaded once here so mod_trips only
+    # has to send its ids, and www/js is served as a normal Shiny resource.
+    tags$script(src = "js/shortcuts.js"),
     mod_header_ui("header")
   ),
   nav_panel(nav_setup,   value = "setup",   mod_setup_ui("setup")),
@@ -53,6 +56,10 @@ server <- function(input, output, session) {
   estado <- init_estado(session)
   mod_header_server("header", estado)
 
+  # input_dark_mode() is a top-level input, so a module would never see it
+  # under its own namespace: publish one derived reactive instead.
+  dark <- reactive(identical(input$modo, "dark"))
+
   restart <- reactiveVal(0)
   setup   <- mod_setup_server("setup", estado, reset = restart)
   # on_continue runs inside mod_confirm_modal's observer, so getDefaultReactiveDomain()
@@ -62,7 +69,7 @@ server <- function(input, output, session) {
     "confirm", estado,
     on_continue = function() nav_select("nav_principal", "trips", session = session)
   )
-  trips   <- mod_trips_server("trips", estado, reset = restart)
+  trips   <- mod_trips_server("trips", estado, reset = restart, dark = dark)
   results <- mod_results_server("results", estado, reset = restart)
 
   # Start The Day -> one-time resume code in a modal; Trips only after the

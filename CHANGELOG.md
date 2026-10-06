@@ -9,6 +9,50 @@ service at once.
 
 ### Added
 
+- Phase 5 UI Trips: the screen split into `mod_trip_card` (the offer, the map
+  and the decision) and `mod_sensitivity` (the what-if zone picker), both under
+  `R/modules/` with the other modules -- `mod_setup.R` and `mod_trips.R` moved
+  there too, matching the file layout of section 6.2, and `helper-load.R` now
+  mirrors `app.R` instead of listing files by hand.
+- `mod_trips` got the sidebar (3/9 on large screens, stacked on small), three
+  KPIs, the pending-time progress bar and the keyboard-hint footer. The hours
+  are `renderText`; the bar's width and colour level are pushed with shinyjs
+  because section 6.1.1 forbids `renderUI` for structure.
+- `www/js/shortcuts.js`: ←/→ preselect Reject/Accept, Enter sends the
+  preselection through the very same button a click uses, `?` opens the help
+  dialog and Esc closes it. Keys never send a decision on their own (6.5), and
+  the hints are hidden entirely on touch devices. Escape is reported to the
+  server because Shiny binds it to the modal element, which only sees the
+  event when the focus is inside it.
+- Cumulative chart and the sensitivity boundary are now `renderGirafe`
+  (interactive tooltips). Section 3.11 holds: the three curves are purple plus
+  two greys, the boundary uses a probability ramp, and the sidebar shows no
+  running comparison against the model.
+- The Leaflet route is updated with `leafletProxy()` instead of re-rendering
+  the widget, so a new offer keeps the player's zoom and pan; the tile layer
+  follows the dark-mode toggle the same way (6.5).
+- `test-shinytest2.R` grew to 26 assertions: it now checks the sidebar, the
+  sized clock bar, the shortcut footer, the arrow/Enter preselection cycle and
+  the `?`/Esc dialog.
+
+### Changed
+
+- **Divergence annotated, document untouched (section 6.5):** the master doc
+  writes `layout_columns(col_widths = c(3, 9), breakpoints = breakpoints(...))`,
+  but bslib 0.12.0 has no `breakpoints` argument -- it lands in `...` and comes
+  out as a useless `breakpoints="c(12, 12) c(3, 9)"` attribute while the md/lg
+  widths are dropped. The breakpoints object goes in `col_widths` instead, and
+  that renders `col-widths-md="12,12" col-widths-lg="3,9"` as intended.
+- **Divergence annotated:** section 6.5 says the sidebar KPIs are "actualizados
+  por `updateTextInput` sobre `textOutput`", which cannot work -- `updateTextInput`
+  writes to a `textInput`. They are `textOutput` + `renderText`, which section
+  6.1.1 explicitly allows for content.
+- Startup cost of the interactive charts: building `ggiraph::girafeOutput`
+  loads the ggplot2/ggiraph namespaces and costs ~1.1 s, taking the app from
+  ~1.4 s to ~2.2-2.4 s at "Listening on". Still inside the phase-4 criterion
+  of <3 s, but it is now most of the budget -- do not move `ggiraph` (or any
+  other namespace load) earlier without re-measuring.
+
 - Nix dependency split, so no image ships what it never runs:
   `nix/pkgs-app.nix` (UI pin, same tarball as `pkgs.nix` today so nothing
   rebuilds) and `nix/r-app.nix` (the whole UI in one expression — what the

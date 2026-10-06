@@ -27,11 +27,15 @@ arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
 **Split de dependencias Nix hecho:** `nix/pkgs-app.nix` + `nix/r-app.nix` para
 la UI, `nix/test-tools.nix` solo con el navegador de los tests, `system.nix`
 de vuelta a lo genérico (sin `chromium`) y `r-dev.nix` sin `devtools`/
-`roxygen2` (ver la sección de Nix).
-**Pendiente:** fase 5 (`mod_trip_card`, `mod_sensitivity`, atajos, barra de
-*pending time*) y fase 6 (`mod_results` completo, `share/`) dentro de `app/`;
-luego `infra/`, `integration/`, `docs/operations/runbook.md` (§8.8),
-`docs/investigation-phases/` (fase 9) y las imágenes/CI (§14, fases 7-9).
+`roxygen2` (ver la sección de Nix). **Fase 5 hecha:** `mod_trip_card` (oferta,
+mapa con `leafletProxy`, Accept/Reject) y `mod_sensitivity` (selectize
+server-side + `renderGirafe`) extraídos de `mod_trips`, que ahora es la
+pantalla con sidebar 3/9, KPIs, barra de *pending time* y footer de atajos de
+teclado (`www/js/shortcuts.js`); todos los módulos viven en `R/modules/`;
+108 assertions (unit + flujo). **Pendiente:** fase 6 (`mod_results` completo,
+`share/`) dentro de `app/`; luego `infra/`, `integration/`,
+`docs/operations/runbook.md` (§8.8), `docs/investigation-phases/` (fase 9) y
+las imágenes/CI (§14, fases 7-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -115,12 +119,19 @@ luego `infra/`, `integration/`, `docs/operations/runbook.md` (§8.8),
 - `NAMESPACE`, `man/` y `.Rbuildignore` (restos de la plantilla golem) fueron
   eliminados: no reintroducirlos. `DESCRIPTION` documenta dependencias; no es un
   paquete instalable.
+- **Todos los módulos viven en `R/modules/`** (§6.2): `mod_setup`, `mod_trips`,
+  `mod_trip_card`, `mod_sensitivity`, `mod_results`, `mod_header` y
+  `mod_confirm_modal`. Shiny solo auto-carga el nivel superior de `R/`, así que
+  `app.R` hace `source(..., local = TRUE)` de `R/modules/`; `helper-load.R`
+  recorre ambos directorios, así que **añadir un módulo no exige tocar los
+  tests**. En las funciones `*_ui` se usa `ns <- NS(id)`; en el servidor la
+  única forma es `session$ns(...)` — `ns` no existe ahí y falla en runtime.
 - El `.Rprofile` (guardas de Nix que bloquean `install.packages()`) está en la
   raíz y R solo lo carga si el cwd es la raíz.
 
 ## Comandos (cwd = `app/` salvo indicación)
 - Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` →
-  **92 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
+  **108 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
   paquete instalado; `helper-load.R` hace `source()` a mano de todo `R/*.R` y
   `R/modules/*.R` (el orden importa). En el shell **raíz** salen
   **82 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
@@ -220,6 +231,10 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - `nix-shell default.dev.nix --run 'Rscript -e "shiny::runApp(\".\", port = 3838)"'`
   (o `Rscript app/app.R` desde la raíz). Debe imprimir `Listening on ...` en
   **< 3 s** — criterio de la fase 4; medirlo si se toca el arranque.
+- **Presupuesto actual ~2,3 s** (medido: 2,21-2,41 s en 6 arranques). La mayor
+  partida es `ggiraph::girafeOutput` (~1,1 s: al construir la UI carga los
+  namespaces de ggplot2 y ggiraph), así que no se adelante ninguna carga de
+  namespace sin volver a medir.
 - Requiere el API real en `127.0.0.1:8000` y `.env` en la raíz (la app lo lee
   con `load_env_file()` solo si la variable no está ya puesta): `TAXI_API_URL`
   y `API_INTERNAL_KEY` son los dos que usa.

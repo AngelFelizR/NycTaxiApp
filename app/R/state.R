@@ -68,6 +68,17 @@ estado_set_state <- function(estado, st) {
   invisible(st)
 }
 
+# The offer on the table: next_trip is null while the day is in setup and once
+# it is over, and depending on how the JSON was parsed it arrives as NULL, NA
+# or an empty object -- all three mean "no trip".
+current_trip <- function(estado) {
+  s <- estado$state
+  if (is.null(s)) return(NULL)
+  t <- s$next_trip
+  if (!is.list(t) || length(t) == 0 || is.null(t$trip_id)) return(NULL)
+  t
+}
+
 # The day is ready to be played: create answered, trajectories computed.
 estado_ready <- function(estado) {
   shiny::isolate(
