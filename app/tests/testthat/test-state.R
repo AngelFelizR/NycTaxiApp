@@ -77,3 +77,54 @@ test_that("estado_set_state ignores a NULL payload", {
   expect_null(estado_set_state(estado, NULL))
   isolate(expect_null(estado$state))
 })
+
+test_that("shift_over only fires when the clock has actually run out", {
+  expect_false(shift_over(NULL))
+  expect_false(shift_over(list(pending_hours = 8)))
+  expect_false(shift_over(list(pending_hours = 0.5)))
+  expect_true(shift_over(list(pending_hours = 0)))
+  expect_true(shift_over(list(pending_hours = -1)))
+  # Malformed payloads must not end the day by accident.
+  expect_false(shift_over(list(pending_hours = NULL)))
+  expect_false(shift_over(list(pending_hours = "soon")))
+})
+
+test_that("estado_set_finished folds the Experiment in without losing history", {
+  estado <- init_estado(fake_session())
+  # A DayState as the last /state or decision call returned it.
+  estado_set_state(estado, list(
+    experiment_id = "3f2504e0", status = "in_progress",
+    next_trip = list(trip_id = 88455), pending_hours = 0,
+    history = list(list(step = 0L, user = 0, policy = 0, baseline = 0),
+                   list(step = 1L, user = 18.5, policy = 19.2, baseline = 12.1))
+  ))
+
+  exp <- list(
+    id = "3f2504e0", status = "finished", company = "Uber",
+    model_version = "0.0.1-data", seed = 42, seed_is_custom = TRUE,
+    share_token = "aZ3kQ9mLp1Rt",
+    result = list(final_user_wage = 2.31, outcome = "beat_model",
+                  user_percentile = 62.5, trips_accepted = 1,
+                  trips_rejected = 0, pct_following_policy = 100)
+  )
+  estado_set_finished(estado, exp)
+
+  isolate({
+    expect_equal(estado$status, "finished")
+    expect_equal(estado$progress, 100L)
+    expect_equal(estado$experiment$seed_is_custom, TRUE)
+    expect_equal(estado$experiment$company, "Uber")
+    expect_equal(estado$result$final_user_wage, 2.31)
+    expect_equal(estado$share_token, "aZ3kQ9mLp1Rt")
+    # The curves need this history, so /finish must not overwrite it.
+    expect_equal(length(estado$state$history), 2)
+    expect_equal(estado$state$status, "finished")
+    expect_true(estado_ready(estado))
+  })
+})
+
+test_that("estado_set_finished tolerates a NULL answer", {
+  estado <- init_estado(fake_session())
+  expect_null(estado_set_finished(estado, NULL))
+  isolate(expect_null(estado$experiment))
+})

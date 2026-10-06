@@ -102,9 +102,31 @@ mod_trips_server <- function(id, estado, reset, dark) {
     })
 
     output$idle <- renderText({
-      if (identical(estado$status, "setup")) label_trips_idle
+      if (identical(estado$status, "finished")) label_trips_finished
+      else if (identical(estado$status, "setup")) label_trips_idle
       else if (is.null(st())) label_no_day
       else label_no_trip
+    })
+
+    # --- end of shift (section 3) -------------------------------------------
+    # /finish is the only place that computes outcome and user_percentile
+    # (4.6 -- "siempre en el servidor"), so the UI has to call it when the
+    # clock runs out; nothing else flips the day to finished.
+    # The status guard stops the retry loop when the call fails: a missing
+    # ReferenceDistribution.qs2 answers 503 and re-raising it once per flush
+    # would notify forever.
+    finish_task <- ExtendedTask$new(function(ctx, id) {
+      api_async("api_finish", ctx, id)
+    })
+    observe({
+      s <- st()
+      req(identical(estado$status, "in_progress"), shift_over(s))
+      req(!finish_task$status() %in% c("running", "success", "error"))
+      finish_task$invoke(estado_ctx(estado), estado$experiment_id)
+    })
+    observe({
+      res <- task_result(finish_task)
+      if (!is.null(res)) estado_set_finished(estado, res)
     })
 
     # --- sidebar KPIs --------------------------------------------------------

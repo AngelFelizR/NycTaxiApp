@@ -78,21 +78,28 @@ mock_trip <- function(step) {
   )
 }
 
+# Simulated clock: 45 minutes per decision from a 00:00 start over an 8h
+# shift, matching the shape the real simulator produces (section 3).
+mock_pending <- function(n_decisions) max(0, 8 - n_decisions * 0.75)
+
 mock_state <- function(day, status = day$status) {
   step <- length(day$decisions)
-  # 45 simulated minutes per decision (trip + idle), from a 00:00 start, so
-  # accepting a trip visibly moves the clock and drains pending_hours.
-  elapsed <- step * 0.75
+  pending <- mock_pending(step)
+  # Whole minutes first: `step * 0.75 %% 1` would parse as step * (0.75 %% 1)
+  # because R gives the %any% operators a tighter precedence than *.
+  mins <- as.integer(round(step * 0.75 * 60))
   list(
     experiment_id = day$id,
     status = status,
-    clock = sprintf("2024-05-12 %02d:%02d:00",
-                    as.integer(elapsed), as.integer((elapsed %% 1) * 60)),
-    pending_hours = max(0, 8 - elapsed),
+    clock = sprintf("2024-05-12 %02d:%02d:00", mins %/% 60, mins %% 60),
+    pending_hours = pending,
     pct_following_policy = 100,
     current_location_id = 161L,
     current_zone = "Midtown-Midtown South",
-    next_trip = if (identical(status, "in_progress")) mock_trip(step) else NA,
+    # No offer once the shift is over: the real API answers 409 on a decision
+    # then, and the UI calls /finish instead.
+    next_trip = if (identical(status, "in_progress") && pending > 0)
+                  mock_trip(step) else NA,
     history = c(
       list(list(step = 0L, user = 0, policy = 0, baseline = 0)),
       lapply(seq_len(step), function(i) {
@@ -150,7 +157,10 @@ mock_create <- function(request, response, body) {
     status = "setup",
     decisions = list(),
     company = payload$company,
-    email = payload$email %||% NULL
+    email = payload$email %||% NULL,
+    # An edited seed marks the result unofficial (section 3.3).
+    seed_custom = nzchar(trimws(as.character(payload$seed %||% ""))),
+    seed = suppressWarnings(as.integer(payload$seed %||% NA_integer_))
   )
   assign(id, day, envir = mock_env$days)
   assign(id, 0L, envir = mock_env$polls)
@@ -160,11 +170,29 @@ mock_create <- function(request, response, body) {
   # One-time credential (contract CreatedExperiment.resume_code): the UI puts
   # it in the modal and sends it back as X-Resume-Code on every /experiments call.
   day$resume_code <- sprintf("mockresume%02d", mock_env$next_id)
+  day$share_token <- paste0("s", gsub("-", "", substr(id, 1, 18)))
   assign(id, day, envir = mock_env$days)
   body$resume_code <- day$resume_code
-  body$share_token <- paste0("s", gsub("-", "", substr(id, 1, 18)))
+  body$share_token <- day$share_token
   response$status <- 201L
   response$body <- body
+  plumber2::Break
+}
+
+# GET /experiments/{id} -> the Experiment record (contract getExperiment; the
+# resume flow reads it back with X-Resume-Code). Registered before the child
+# routes on purpose: plumber2 only registers /experiments/<id>/... once the
+# parent path exists.
+mock_get_experiment <- function(request, response, id) {
+  day <- get0(id, envir = mock_env$days, inherits = FALSE)
+  if (is.null(day)) {
+    return(mock_fail(response, 404L, "not_found", "Experiment not found."))
+  }
+  if (!identical(request$get_header("x-resume-code"), day$resume_code)) {
+    return(mock_fail(response, 403L, "forbidden",
+                     "Invalid or missing X-Resume-Code header."))
+  }
+  response$body <- mock_experiment(day)
   plumber2::Break
 }
 
@@ -219,13 +247,10 @@ mock_decide <- function(request, response, id, body) {
   if (is.null(payload$trip_id)) {
     return(mock_fail(response, 400L, "bad_request", "Missing required field(s): trip_id."))
   }
-  if (length(day$decisions) >= 12L) {
-    # Shift over: the app should move on to Results.
-    day$status <- "finished"
-    assign(id, day, envir = mock_env$days)
-    body <- mock_state(day, status = "finished")
-    response$body <- body
-    return(plumber2::Break)
+  # Shift over: no offer left, so the real API answers 409 and the UI is
+  # expected to have called /finish instead of deciding anything.
+  if (mock_pending(length(day$decisions)) <= 0) {
+    return(mock_fail(response, 409L, "conflict", "The day is already over."))
   }
   day$decisions <- c(day$decisions, list(list(trip_id = payload$trip_id,
                                               accepted = isTRUE(payload$accepted))))
@@ -267,14 +292,101 @@ mock_last_seen <- function(request, response) {
   plumber2::Break
 }
 
-mock_finish <- function(request, response, id) {
+# A day's three trajectories in miniature: the same shape the real simulator
+# writes into `decisions`, so Results can be exercised without models.
+mock_result <- function(day) {
+  step <- length(day$decisions)
+  user <- step * 18.5
+  policy <- step * 19.2
+  baseline <- step * 12.1
+  accepted <- sum(vapply(day$decisions, function(d) isTRUE(d$accepted),
+                         logical(1)))
+  uw <- user / 8
+  pw <- policy / 8
+  bw <- baseline / 8
+  # Section 3.10 precedence, evaluated the way the API does it.
+  outcome <- if (accepted == 0) "no_rides"
+    else if (uw > pw + 0.01) "beat_model"
+    else if (abs(uw - pw) <= 0.01) "tied_model"
+    else if (uw > bw) "beat_baseline"
+    else "lost_to_baseline"
+  list(
+    final_user_wage = round(uw, 2),
+    final_policy_wage = round(pw, 2),
+    final_baseline_wage = round(bw, 2),
+    pct_following_policy = 100,
+    outcome = outcome,
+    user_percentile = 62.5,
+    trips_accepted = accepted,
+    trips_rejected = step - accepted
+  )
+}
+
+# POST /finish answers the whole Experiment record, not a DayState -- the UI
+# reads company, model_version and seed_is_custom from it (technical details).
+mock_experiment <- function(day) {
+  list(
+    id = day$id,
+    status = "finished",
+    company = day$company %||% "Lyft",
+    start_datetime = "2024-05-12T00:00:00Z",
+    start_location_id = 61L,
+    seed = if (isTRUE(day$seed_custom)) as.numeric(day$seed) else 0,
+    seed_is_custom = isTRUE(day$seed_custom),
+    model_version = "0.0.1-data",
+    app_version = "0.1.0",
+    created_at = "2024-05-12T00:00:00Z",
+    updated_at = "2024-05-12T08:30:00Z",
+    finished_at = "2024-05-12T08:30:00Z",
+    share_token = day$share_token %||% "",
+    result = mock_result(day),
+    feedback = NA
+  )
+}
+
+# `body` is unused (the contract declares no requestBody for /finish), but a
+# POST route only dispatches here when the request carries a JSON body: without
+# the formal plumber2 never reads it and the route falls through to the
+# catch-all. The client sends "{}" for the same reason -- see api_client.R.
+mock_finish <- function(request, response, id, body) {
   day <- get0(id, envir = mock_env$days, inherits = FALSE)
   if (is.null(day)) {
     return(mock_fail(response, 404L, "not_found", "Experiment not found."))
   }
+  if (!identical(request$get_header("x-resume-code"), day$resume_code)) {
+    return(mock_fail(response, 403L, "forbidden",
+                     "Invalid or missing X-Resume-Code header."))
+  }
+  if (identical(day$status, "setup")) {
+    return(mock_fail(response, 409L, "conflict", "The day has not started yet."))
+  }
   day$status <- "finished"
   assign(id, day, envir = mock_env$days)
-  response$body <- mock_state(day, status = "finished")
+  response$body <- mock_experiment(day)
+  plumber2::Break
+}
+
+# POST /experiments/{id}/feedback -> {message} (contract MessageResponse).
+mock_feedback <- function(request, response, id, body) {
+  day <- get0(id, envir = mock_env$days, inherits = FALSE)
+  if (is.null(day)) {
+    return(mock_fail(response, 404L, "not_found", "Experiment not found."))
+  }
+  if (!identical(request$get_header("x-resume-code"), day$resume_code)) {
+    return(mock_fail(response, 403L, "forbidden",
+                     "Invalid or missing X-Resume-Code header."))
+  }
+  payload <- mock_body(body)
+  rating <- suppressWarnings(as.integer(payload$rating %||% NA))
+  if (length(rating) != 1L || is.na(rating) || rating < 1L || rating > 5L) {
+    return(mock_fail(response, 422L, "unprocessable_entity",
+                     "rating must be an integer between 1 and 5."))
+  }
+  day$feedback <- list(rating = rating,
+                       comment = payload$comment %||% NA,
+                       public = isTRUE(payload$public))
+  assign(id, day, envir = mock_env$days)
+  response$body <- list(message = "Feedback saved.")
   plumber2::Break
 }
 
@@ -297,13 +409,22 @@ mock_api <- function(host = "127.0.0.1", port = 8010L) {
                             serializers = js, parsers = pj)
   api <- plumber2::api_post(api, "/experiments", mock_create,
                             serializers = js, parsers = pj)
+  api <- plumber2::api_get(api, "/experiments/<id>", mock_get_experiment,
+                           serializers = js)
   api <- plumber2::api_get(api, "/experiments/<id>/state", mock_get_state,
                            serializers = js)
   api <- plumber2::api_post(api, "/experiments/<id>/decisions", mock_decide,
                             serializers = js, parsers = pj)
   api <- plumber2::api_post(api, "/experiments/<id>/finish", mock_finish,
                             serializers = js, parsers = pj)
+  api <- plumber2::api_post(api, "/experiments/<id>/feedback", mock_feedback,
+                            serializers = js, parsers = pj)
   api <- plumber2::api_post(api, "/sensitivity", mock_sensitivity,
                             serializers = js, parsers = pj)
+  # Same shape as api/plumber.R: a trailing catch-all so an unknown path
+  # answers 404 "No route matches." instead of an empty 200.
+  api <- plumber2::api_any(api, "/*", function(request, response, ...) {
+    mock_fail(response, 404L, "not_found", "No route matches.")
+  }, serializers = js)
   api
 }

@@ -118,6 +118,9 @@ mod_setup_server <- function(id, estado, reset) {
       res <- task_result(create_task)
       if (!is.null(res)) {
         estado_set_created(estado, res)
+        # The API never echoes the address back (PII, 9.1), but Results needs
+        # to know whether the second email prompt is pointless (6.5).
+        estado$email <- trimws(input$email %||% "")
         day(res)
         # The R6 method has no default for mode; "replace" keeps the back
         # button from walking through every condition the player edited.

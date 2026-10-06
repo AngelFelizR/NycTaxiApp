@@ -32,10 +32,15 @@ mapa con `leafletProxy`, Accept/Reject) y `mod_sensitivity` (selectize
 server-side + `renderGirafe`) extraídos de `mod_trips`, que ahora es la
 pantalla con sidebar 3/9, KPIs, barra de *pending time* y footer de atajos de
 teclado (`www/js/shortcuts.js`); todos los módulos viven en `R/modules/`;
-108 assertions (unit + flujo). **Pendiente:** fase 6 (`mod_results` completo,
-`share/`) dentro de `app/`; luego `infra/`, `integration/`,
-`docs/operations/runbook.md` (§8.8), `docs/investigation-phases/` (fase 9) y
-las imágenes/CI (§14, fases 7-9).
+108 assertions (unit + flujo). **Fase 6 (mitad de `app/`) hecha:** `mod_results`
+con los 6 KPIs, las 3 curvas, el percentil, la insignia de semilla y los
+detalles técnicos + `mod_feedback`; la jornada termina en `POST /finish`
+(único sitio que calcula `outcome` y `user_percentile`), y el mock reproduce
+la precedencia de §3.10. **Pendiente:** la otra mitad de la fase 6 — botones
+de compartir y segundo prompt de email en Results, y el servicio `share/`
+(imagen propia, PNG con `patchwork`+`ragg`, HTML con OG) con su SMTP/SPF/DKIM;
+luego `infra/`, `integration/`, `docs/operations/runbook.md` (§8.8),
+`docs/investigation-phases/` (fase 9) y las imágenes/CI (§14, fases 7-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -131,17 +136,18 @@ las imágenes/CI (§14, fases 7-9).
 
 ## Comandos (cwd = `app/` salvo indicación)
 - Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` →
-  **108 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
+  **155 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
   paquete instalado; `helper-load.R` hace `source()` a mano de todo `R/*.R` y
   `R/modules/*.R` (el orden importa). En el shell **raíz** salen
-  **82 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
+  **112 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
   de flujo se salta con un mensaje que apunta al shell correcto.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - Tests del **cliente** API sin servidor: `httr2::with_mocked_responses()`
   (`app/tests/testthat/test-api_client.R`) — no confundir con los de la API.
-- Test de flujo (`test-shinytest2.R`, fase 4): levanta `dev/mock_api.R` en un
+- Test de flujo (`test-shinytest2.R`, fases 4-6): levanta `dev/mock_api.R` en un
   puerto aleatorio, arranca la app real en Chromium headless y recorre
-  Setup → modal → Trips → aceptar viaje, más el reenvío de `X-Client-IP`.
+  Setup → semilla → modal → Trips → todas las decisiones hasta cerrar la
+  jornada → Results → modal de feedback, más el reenvío de `X-Client-IP`.
   Requiere `chromium` (`nix/test-tools.nix`, presente en
   `app/default.dev.nix` **no** en el shell raíz) y `NOT_CRAN=true`
   (`AppDriver` se niega a correr si testthat cree que estamos en CRAN; el
@@ -231,7 +237,7 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - `nix-shell default.dev.nix --run 'Rscript -e "shiny::runApp(\".\", port = 3838)"'`
   (o `Rscript app/app.R` desde la raíz). Debe imprimir `Listening on ...` en
   **< 3 s** — criterio de la fase 4; medirlo si se toca el arranque.
-- **Presupuesto actual ~2,3 s** (medido: 2,21-2,41 s en 6 arranques). La mayor
+- **Presupuesto actual ~2,3 s** (medido: 2,24-2,51 s en 9 arranques). La mayor
   partida es `ggiraph::girafeOutput` (~1,1 s: al construir la UI carga los
   namespaces de ggplot2 y ggiraph), así que no se adelante ninguna carga de
   namespace sin volver a medir.
@@ -256,8 +262,17 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
   `estado_ctx(estado)` construye el contexto de cada llamada.
 - El catálogo de los 18 endpoints (`X-Internal-Key`, `X-Resume-Code`, rate
   limit) está en §5.2 y en `contract/openapi.yaml`, que es lo que el cliente
-  implementa. `R/modules/mod_results.R` existe como panel mínimo de Results
-  (la fase 6 lo amplía con share/feedback/percentil).
+  implementa. `R/modules/mod_results.R` es la pantalla final (6 KPIs,
+  percentil, insignia de semilla); la fase 6 pendiente es **`share/`** y los
+  botones de compartir.
+- **La jornada solo termina en `POST /finish`** (§4.6: `outcome` y
+  `user_percentile` se calculan "siempre en el servidor"). `mod_trips` lo
+  llama cuando `shift_over()` ve `pending_hours <= 0`; nada más cambia el
+  estado a `finished`, y el mock tampoco auto-cierra. **Ese `POST` envía
+  `{}`**: la ruta no declara `requestBody` y la API real lo acepta con o sin
+  cuerpo, pero este plumber2 solo despacha una ruta POST si la petición lleva
+  cuerpo JSON (sin él cae al catch-all); `api/dev/e2e_experiments.sh` ya
+  enviaba `-d '{}'` por el mismo motivo.
 
 ## Fuente de verdad y prioridad entre documentos
 - **Documento maestro = decisiones de arquitectura; no se edita.** Si el código

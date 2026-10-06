@@ -111,6 +111,7 @@ label_no_trip <- "Waiting for the next trip..."
 label_model_accept <- "Accept trip"
 label_model_reject <- "Reject trip"
 label_trips_idle <- "The day is still being prepared. This can take up to two minutes."
+label_trips_finished <- "The shift is over -- your results are ready."
 
 # Sidebar (6.5): KPIs plus the discrete button that shows the code again.
 # Deliberately no live % vs policy here: section 3.11 reserves any comparison
@@ -143,6 +144,28 @@ label_kpi_accepted <- "Trips Accepted"
 label_kpi_rejected <- "Trips Rejected"
 label_kpi_following <- "% Following Policy"
 label_results_title <- "Your day is over"
+
+# Under the curves (4.6): the percentile is a sentence, never a seventh KPI.
+fmt_percentile <- "Your day ranked at the %s percentile of 1,000 simulated model days."
+note_percentile <- "One day is a single sample, so read it as a snapshot, not as a ranking."
+badge_custom_seed <- "Custom seed \u2014 unofficial"
+msg_no_rides <- "You rejected every ride, so your day ended at $0."
+label_technical <- "Technical details"
+label_experiment_id <- "Experiment ID"
+label_model_version <- "Model"
+label_company_detail <- "Company"
+
+# ---- feedback --------------------------------------------------------------
+label_feedback_btn <- "Send feedback"
+label_feedback_title <- "How was your day?"
+label_feedback_rating <- "Rating"
+label_feedback_comment <- "Comment (optional)"
+label_feedback_public <- "Show my comment publicly"
+label_feedback_public_help <- "Your name is never shown; comments are anonymous."
+btn_feedback_submit <- "Send"
+btn_feedback_close <- "Not now"
+msg_feedback_saved <- "Feedback saved. Thank you."
+err_feedback_rating <- "Pick a rating before sending."
 
 # ---- generic ---------------------------------------------------------------
 err_api_prefix <- "API error:"

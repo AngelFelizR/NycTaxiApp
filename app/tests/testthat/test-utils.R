@@ -97,3 +97,18 @@ test_that("app_data_dir falls back to a path that exists", {
                 dir.exists("/srv/nyctaxi/data") ||
                 dir.exists("/data"))
 })
+
+test_that("ordinal renders the percentile the way 4.6 spells it", {
+  expect_equal(ordinal(1), "1st")
+  expect_equal(ordinal(2), "2nd")
+  expect_equal(ordinal(3), "3rd")
+  expect_equal(ordinal(4), "4th")
+  expect_equal(ordinal(11), "11th")
+  expect_equal(ordinal(12), "12th")
+  expect_equal(ordinal(13), "13th")
+  expect_equal(ordinal(21), "21st")
+  expect_equal(ordinal(73), "73rd")
+  expect_equal(ordinal(100), "100th")
+  expect_equal(ordinal(62.5), "62nd")
+  expect_equal(ordinal(NA), "")
+})

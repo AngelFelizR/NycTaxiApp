@@ -9,6 +9,48 @@ service at once.
 
 ### Added
 
+- Phase 6, the app half: `mod_results` shows the finished day with the six
+  KPIs of section 6.5 (Total Earnings, Hourly Wage, vs Policy, Trips Accepted,
+  Trips Rejected, % Following Policy), the three cumulative curves in
+  `renderGirafe`, the percentile as a sentence under them (4.6 -- never a
+  seventh KPI), the "Custom seed — unofficial" badge (3.3), the neutral
+  `no_rides` notice (3.8), a collapsed Technical details block with the
+  experiment id, and the buttons that lead to feedback and to a new day.
+- `mod_feedback`: the post-game modal (rating 1-5 + comment + public-display
+  consent, off by default) that answers `POST /experiments/{id}/feedback`. It
+  refuses to submit without a rating and keeps the dialog open until the API
+  accepts.
+- The day now actually ends: nothing but `POST /finish` computes `outcome` and
+  `user_percentile` (4.6, "siempre en el servidor"), so `mod_trips` calls it
+  when `shift_over()` sees `pending_hours <= 0`, `state.R` folds the returned
+  Experiment into `estado` without losing the history the curves need, and
+  `app.R` moves to Results. `api_feedback` joins the client.
+- `dev/mock_api.R` gained `/experiments/{id}` and `/feedback`, a trailing
+  catch-all so an unknown path answers 404 instead of an empty 200, and a
+  `mock_result()`/`mock_experiment()` pair that reproduces the section 3.10
+  outcome precedence -- so Results can be exercised without models or a
+  database.
+
+### Changed
+
+- **`/finish` now sends `{}`.** The route declares no `requestBody`, and the
+  real API answers it either way (verified: handler runs with and without one),
+  but this plumber2 build only dispatches a POST route when the request
+  carries a JSON body: without it the mock fell through to the catch-all.
+  `api/dev/e2e_experiments.sh` already sent `-d '{}'` for the same reason.
+- `girafe_options()` is an in-place modifier that takes the girafe as its
+  first argument, not an option factory: wrapping each option in it made
+  `girafe()` reject the widget with "`x` must be a girafe object". The options
+  go in `options = list(...)`.
+- Every output inside a `conditionalPanel` now sets
+  `suspendWhenHidden = FALSE`: an output that only computes once its panel is
+  visible stays blank when the panel is revealed by a flag it cannot see.
+  That is why Results rendered empty KPIs while `filled_on` was already true.
+- `c(label_curve_user = ...)` takes the *literal* name, not the string the
+  variable holds; the curve colours now get their names assigned after the
+  vector is built.
+- Startup is 2.24-2.51 s at "Listening on" against the <3 s criterion.
+
 - Phase 5 UI Trips: the screen split into `mod_trip_card` (the offer, the map
   and the decision) and `mod_sensitivity` (the what-if zone picker), both under
   `R/modules/` with the other modules -- `mod_setup.R` and `mod_trips.R` moved
@@ -31,12 +73,10 @@ service at once.
 - The Leaflet route is updated with `leafletProxy()` instead of re-rendering
   the widget, so a new offer keeps the player's zoom and pan; the tile layer
   follows the dark-mode toggle the same way (6.5).
-- `test-shinytest2.R` grew to 26 assertions: it now checks the sidebar, the
-  sized clock bar, the shortcut footer, the arrow/Enter preselection cycle and
-  the `?`/Esc dialog.
-
-### Changed
-
+- `test-shinytest2.R` grew to 43 assertions: it walks the whole day -- sidebar,
+  sized clock bar, shortcut footer, arrow/Enter preselection, the `?`/Esc
+  dialog, every decision until the shift closes, Results and the feedback
+  modal.
 - **Divergence annotated, document untouched (section 6.5):** the master doc
   writes `layout_columns(col_widths = c(3, 9), breakpoints = breakpoints(...))`,
   but bslib 0.12.0 has no `breakpoints` argument -- it lands in `...` and comes
@@ -119,7 +159,6 @@ service at once.
   and Redis (the one skip is `test-outcome.R` once the reference file is
   installed).
 
-### Changed
 
 - Dependencies that nothing used are gone: `chromium` (1.3 GB of closure) left
   `nix/system.nix` — the generic layer every future image reuses, which should

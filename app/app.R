@@ -83,16 +83,26 @@ server <- function(input, output, session) {
   # globals) and clears the ?exp= bookmark so the URL cannot resurrect it.
   observeEvent(restart(), {
     req(restart() > 0)
-    estado$experiment_id <- NULL
-    estado$resume_code   <- NULL
-    estado$share_token   <- NULL
-    estado$state         <- NULL
-    estado$status        <- NULL
-    estado$progress      <- 0L
-    estado$result        <- NULL
+    estado$experiment_id  <- NULL
+    estado$resume_code    <- NULL
+    estado$share_token    <- NULL
+    estado$state          <- NULL
+    estado$status         <- NULL
+    estado$progress       <- 0L
+    estado$result         <- NULL
+    estado$experiment     <- NULL
+    estado$email          <- NULL
     session$updateQueryString("?", mode = "replace")
     nav_select("nav_principal", "setup", session = session)
   }, ignoreInit = TRUE)
+
+  # The day ends on POST /finish (mod_trips fires it when the clock runs out);
+  # that is the moment Results has something to show.
+  observeEvent(estado$status, {
+    if (identical(estado$status, "finished")) {
+      nav_select("nav_principal", "results", session = session)
+    }
+  })
 
   # While the policy and baseline trajectories are computed in the background,
   # /state is the only signal: model_progress climbs to 99 and the status

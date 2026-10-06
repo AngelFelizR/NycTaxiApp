@@ -63,39 +63,36 @@ mod_trip_card_server <- function(id, estado, dark) {
     })
 
     # --- map: zones once, tiles follow the theme, route per offer ------------
+    # renderLeaflet draws the initial view (zones + the offer as it stands).
+    # Everything afterwards goes through leafletProxy, which is only safe once
+    # the widget has bound on the client -- sending earlier logs
+    # "Couldn't find map with id ..." because the Trips panel is still hidden.
+    map_ready <- reactiveVal(FALSE)
+
     output$map_trip <- renderLeaflet({
       z <- zones_map_data()
       m <- basemap()
-      if (is.null(z)) return(m)
-      addPolygons(m, data = z, weight = 1, color = "#e3e6ea",
-                  fillColor = "#ffffff", fillOpacity = 0.5,
-                  options = pathOptions(clickable = FALSE))
+      base <- if (is.null(z)) m else
+        addPolygons(m, data = z, weight = 1, color = "#e3e6ea",
+                    fillColor = "#ffffff", fillOpacity = 0.5,
+                    options = pathOptions(clickable = FALSE))
+      map_ready(TRUE)
+      draw_route(base, trip(), z)
     })
 
     # 6.5: the tile layer switches with the theme without reloading the widget,
     # so the current centre and zoom survive the toggle.
     observeEvent(dark(), {
+      req(map_ready())
       leafletProxy("map_trip", session) |>
         addProviderTiles(if (isTRUE(dark())) "CartoDB.DarkMatter"
                          else "CartoDB.Positron")
     })
 
     observe({
+      req(map_ready())
       proxy <- leafletProxy("map_trip", session) |> clearGroup("route")
-      t <- trip()
-      z <- zones_map_data()
-      if (is.null(t) || is.null(z)) return(invisible(NULL))
-      pts <- zone_points(z, c(t$pulocation_id, t$dolocation_id))
-      if (is.null(pts) || nrow(pts) == 0) return(invisible(NULL))
-      coords <- sf::st_coordinates(sf::st_geometry(pts))
-      route <- data.frame(lng = coords[, 1], lat = coords[, 2])
-      proxy |>
-        addPolylines(data = route, lng = ~lng, lat = ~lat, group = "route",
-                     weight = 3, color = "#6d5dfc", opacity = 0.7) |>
-        addCircleMarkers(data = route, lng = ~lng, lat = ~lat, group = "route",
-                         radius = 6, stroke = FALSE, fillOpacity = 0.9,
-                         fillColor = if (nrow(route) >= 2)
-                           c("#8470ff", "#C44E52") else "#8470ff")
+      draw_route(proxy, trip(), zones_map_data())
     })
 
     # --- fields ---------------------------------------------------------------
@@ -127,4 +124,22 @@ mod_trip_card_server <- function(id, estado, dark) {
          accept_id = session$ns("accept"),
          reject_id = session$ns("reject"))
   })
+}
+
+# The offer drawn on the map. Works both on the renderLeaflet result and on a
+# leafletProxy (the caller clears the "route" group first), so the initial
+# paint and every later offer go through the same code.
+draw_route <- function(map, t, z) {
+  if (is.null(t) || is.null(z)) return(map)
+  pts <- zone_points(z, c(t$pulocation_id, t$dolocation_id))
+  if (is.null(pts) || nrow(pts) == 0) return(map)
+  coords <- sf::st_coordinates(sf::st_geometry(pts))
+  route <- data.frame(lng = coords[, 1], lat = coords[, 2])
+  map |>
+    addPolylines(data = route, lng = ~lng, lat = ~lat, group = "route",
+                 weight = 3, color = "#6d5dfc", opacity = 0.7) |>
+    addCircleMarkers(data = route, lng = ~lng, lat = ~lat, group = "route",
+                     radius = 6, stroke = FALSE, fillOpacity = 0.9,
+                     fillColor = if (nrow(route) >= 2)
+                       c("#8470ff", "#C44E52") else "#8470ff")
 }

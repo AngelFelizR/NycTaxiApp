@@ -110,9 +110,12 @@ mod_sensitivity_server <- function(id, estado, reset) {
         ggplot2::labs(x = "Trip time (s)", y = "Driver pay ($)",
                       title = label_sensitivity_plot) +
         ggplot2::theme_minimal()
+      # options takes a LIST of option objects; girafe_options() modifies an
+      # existing girafe, so wrapping each option in it makes girafe() reject
+      # the widget with "`x` must be a girafe object".
       ggiraph::girafe(ggobj = p, options = list(
-        ggiraph::girafe_options(ggiraph::opts_toolbar(saveaspng = FALSE)),
-        ggiraph::girafe_options(ggiraph::opts_hover(css = "stroke-width:3px;"))
+        ggiraph::opts_toolbar(saveaspng = FALSE),
+        ggiraph::opts_hover(css = "stroke-width:3px;")
       ))
     })
 

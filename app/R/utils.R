@@ -115,6 +115,16 @@ line_plot <- function(history, series) {
     theme_minimal()
 }
 
+# 4.6 renders the percentile as "the 21st percentile", so it needs the ordinal
+# suffix; 11/12/13 are the irregulars and every -11/-12/-13 inherits them.
+ordinal <- function(n) {
+  n <- as.integer(round(as.numeric(n)[1]))
+  if (is.na(n)) return("")
+  sfx <- if (n %% 100 %in% c(11, 12, 13)) "th" else
+    switch(as.character(n %% 10), "1" = "st", "2" = "nd", "3" = "rd", "th")
+  paste0(n, sfx)
+}
+
 # --- adapters over the contract payloads, shared by trips and results ---------
 
 # DayState.history: an array of {step, user, policy, baseline} that may arrive

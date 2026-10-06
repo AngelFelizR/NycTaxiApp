@@ -76,12 +76,14 @@ zone_choices <- function() {
 
 # Geometry for the Leaflet map, in WGS84, keyed by LocationID. Zones without
 # geometry (264/265) are simply not clickable on the map; they are not valid
-# starting zones either.
+# starting zones either. The transform is cached: it costs ~0.16 s and both
+# the Setup map and every offer's route need the same object.
 zones_map_data <- function() {
+  if (!is.null(constants_state$zones_wgs84)) return(constants_state$zones_wgs84)
   z <- zones_sf()
   if (is.null(z)) return(NULL)
   if (is.na(sf::st_crs(z))) sf::st_crs(z) <- 2263  # NAD83 / New York Long Island
-  sf::st_transform(z, 4326)
+  constants_state$zones_wgs84 <- sf::st_transform(z, 4326)
 }
 
 # The setup dropdowns. Section 6.1.3: companies, zones and defaults are

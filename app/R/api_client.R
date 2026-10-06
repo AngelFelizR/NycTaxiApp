@@ -149,10 +149,15 @@ api_decide <- function(ctx, experiment_id, trip_id, accepted) {
     api_json()
 }
 
-# POST /experiments/{id}/finish -> the finished record with results.
+# POST /experiments/{id}/finish -> the finished Experiment record with the
+# results. The route declares no requestBody (contract/openapi.yaml), and the
+# real API answers it with or without one; dev/mock_api.R needs the request to
+# carry a body before plumber2 dispatches the route at all, so an empty object
+# is sent -- exactly what api/dev/e2e_experiments.sh does with `-d '{}'`.
 api_finish <- function(ctx, experiment_id) {
   api_request(ctx, file.path("experiments", experiment_id, "finish"),
               resume = TRUE) |>
+    httr2::req_body_raw(charToRaw("{}"), type = "application/json") |>
     api_json()
 }
 
@@ -160,6 +165,22 @@ api_finish <- function(ctx, experiment_id) {
 api_abandon <- function(ctx, experiment_id) {
   api_request(ctx, file.path("experiments", experiment_id, "abandon"),
               resume = TRUE) |>
+    api_json()
+}
+
+# POST /experiments/{id}/feedback -> {message}. Rating 1-5 is the only
+# required field; the comment and the public-display consent are optional
+# (contract FeedbackRequest, off by default).
+api_feedback <- function(ctx, experiment_id, rating, comment = NULL,
+                         public = FALSE) {
+  api_request(ctx, file.path("experiments", experiment_id, "feedback"),
+              resume = TRUE) |>
+    req_body_json(drop_nulls(list(
+      rating = as.integer(rating),
+      comment = if (is.null(comment) || !nzchar(trimws(comment))) NULL
+                else trimws(comment),
+      public = isTRUE(public)
+    ))) |>
     api_json()
 }
 

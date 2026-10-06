@@ -25,7 +25,9 @@ init_estado <- function(session) {
     state = NULL,         # latest DayState from the API
     status = NULL,        # setup | in_progress | finished | abandoned
     progress = 0L,        # model_progress while status is setup
-    result = NULL         # ExperimentResult once the day is finished
+    result = NULL,        # ExperimentResult once the day is finished
+    experiment = NULL,    # last Experiment record (finish returns the full one)
+    email = NULL          # given during Setup; the API never echoes it back
   )
 }
 
@@ -77,6 +79,43 @@ current_trip <- function(estado) {
   t <- s$next_trip
   if (!is.list(t) || length(t) == 0 || is.null(t$trip_id)) return(NULL)
   t
+}
+
+# The shift reached its 8h+30min limit (section 3). The UI then calls
+# POST /finish, because outcome and user_percentile are computed there, on the
+# server (4.6) -- never in the browser.
+shift_over <- function(state) {
+  if (is.null(state)) return(FALSE)
+  h <- state$pending_hours
+  if (is.null(h) || length(h) == 0) return(FALSE)
+  h <- suppressWarnings(as.numeric(h[[1]]))
+  isTRUE(length(h) == 1L && !is.na(h) && h <= 0)
+}
+
+# POST /finish answers an Experiment record (id, company, model_version, seed,
+# seed_is_custom, result, feedback) -- NOT a DayState. So the history the
+# Results curves need lives in estado$state and must survive this call
+# untouched; only the record itself and the status are folded in here.
+estado_set_finished <- function(estado, exp) {
+  if (is.null(exp)) return(invisible(NULL))
+  shiny::isolate({
+    estado$experiment <- exp
+    estado$status <- "finished"
+    estado$progress <- 100L
+    if (!is.null(exp$id)) estado$experiment_id <- as.character(exp$id)
+    if (!is.null(exp$share_token)) {
+      estado$share_token <- as.character(exp$share_token)
+    }
+    if (is.list(exp$result) && length(exp$result) > 0) {
+      estado$result <- exp$result
+    }
+    s <- estado$state
+    if (!is.null(s)) {
+      s$status <- "finished"
+      estado$state <- s
+    }
+  })
+  invisible(exp)
 }
 
 # The day is ready to be played: create answered, trajectories computed.

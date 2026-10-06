@@ -106,6 +106,13 @@ visible <- function(selector) {
   ))
 }
 
+# The active navbar tab, as text -- app.R moves to Results when /finish lands.
+active_tab <- function() {
+  app$get_js(paste0("(function(){ var a = document.querySelector(",
+                    "'.nav-link.active'); return a ? a.textContent.trim() : ''; })()"))
+}
+on_results <- function() identical(active_tab(), "Results")
+
 # --- 1. the form is up and starts unvalidated -------------------------------
 
 test_that("the setup form is ready and starts unvalidated", {
@@ -132,7 +139,24 @@ test_that("validating a non-optimal start shows both hints", {
   expect_true(visible("#setup-start_day"))
 })
 
-# --- 3. Start The Day opens the resume-code modal --------------------------
+# --- 3. the advanced seed option (3.3) --------------------------------------
+
+test_that("the advanced seed option accepts a custom seed", {
+  # set_inputs() reaches the reactive for the always-visible fields but not for
+  # one revealed by a conditionalPanel, so drive both the toggle and the value
+  # the way the browser would.
+  app$run_js("document.querySelector('#setup-advanced').click()")
+  app$wait_for_js(paste0(
+    "(function(){ var e = document.querySelector('#setup-seed');",
+    "return !!e && e.offsetParent !== null; })()"), timeout = 15000)
+  expect_true(visible("#setup-seed"))
+
+  app$run_js("Shiny.setInputValue('setup-seed', '4242', {priority: 'event'})")
+  # The seed reaches the API, not the DOM: the unofficial badge in Results is
+  # the only place it shows up (3.3).
+})
+
+# --- 4. Start The Day opens the resume-code modal --------------------------
 
 test_that("Start The Day shows the one-time resume code in a modal", {
   app$click(selector = "#setup-start_day")
@@ -143,7 +167,7 @@ test_that("Start The Day shows the one-time resume code in a modal", {
   expect_match(app$get_js("window.location.search"), "\\?exp=")
 })
 
-# --- 4. Continue lands on Trips and the day becomes playable ----------------
+# --- 5. Continue lands on Trips and the day becomes playable ----------------
 
 test_that("the day reaches Trips with its sidebar, clock bar and hints", {
   app$click(selector = "#confirm-continue")
@@ -172,7 +196,7 @@ test_that("the day reaches Trips with its sidebar, clock bar and hints", {
   expect_false(grepl("Following Policy", sidebar, fixed = TRUE))
 })
 
-# --- 5. accepting a trip advances the day ----------------------------------
+# --- 6. accepting a trip advances the day ----------------------------------
 
 test_that("accepting a trip moves the simulated clock", {
   before <- app$get_text("#trips-current_time")
@@ -184,7 +208,7 @@ test_that("accepting a trip moves the simulated clock", {
   expect_true(nzchar(app$get_text("#trips-current_time")))
 })
 
-# --- 6. the keyboard shortcuts preselect and confirm ------------------------
+# --- 7. the keyboard shortcuts preselect and confirm ------------------------
 
 key <- function(k) {
   app$run_js(sprintf(
@@ -227,7 +251,91 @@ test_that("the ? key opens the shortcuts dialog and Esc closes it", {
   expect_false(js_truthy("!!document.querySelector('.modal')"))
 })
 
-# --- 7. the app forwarded the client IP ------------------------------------
+# --- 8. playing out the shift ends the day and opens Results ----------------
+
+test_that("the shift ends on /finish and lands on Results", {
+  # The mock advances 45 simulated minutes per decision, so the 8h shift
+  # closes after 11 offers and then answers 409 to any further one. Nothing
+  # else flips the day to finished: the UI has to call POST /finish, which is
+  # what computes outcome and the percentile on the server (4.6).
+  for (i in seq_len(40)) {
+    if (on_results()) break
+    if (!visible("#trips-card-accept")) { Sys.sleep(0.5); next }
+    before <- app$get_text("#trips-current_time")
+    app$click(selector = "#trips-card-accept")
+    # Either the clock moves, or the day ended and app.R switched panels.
+    try(app$wait_for_js(sprintf(
+      paste0("(function(){",
+             " var e = document.querySelector('#trips-current_time');",
+             " var a = document.querySelector('.nav-link.active');",
+             " return (!!e && e.textContent !== %s) ||",
+             "        (!!a && a.textContent.trim() === 'Results');",
+             " })()"),
+      jsonlite::toJSON(before, auto_unbox = TRUE)
+    ), timeout = 6000), silent = TRUE)
+  }
+  expect_true(on_results())
+})
+
+# --- 9. Results: six KPIs, the percentile sentence and the seed badge -------
+
+test_that("Results shows the KPIs, the percentile and the custom-seed badge", {
+  expect_true(on_results())
+
+  # The seed was set to 4242 during Setup, so the day is not official (3.3).
+  expect_true(visible(".custom-seed"))
+
+  # 4.6: the percentile is a sentence under the curves, never a seventh KPI.
+  has_text("#results-percentile", "62nd percentile")
+  has_text("#results-percentile_note", "single sample")
+
+  # The six KPIs (6.5) all carry a value.
+  for (kpi in c("earnings", "hourly", "vs_policy", "accepted", "rejected",
+                "following")) {
+    v <- app$get_js(sprintf(
+      "document.querySelector('#results-%s') ? document.querySelector('#results-%s').textContent.trim() : ''",
+      kpi, kpi))
+    expect_true(nzchar(v), label = paste("KPI", kpi))
+  }
+  # The comparison is a number with an arrow, not just a colour (3.11).
+  expect_match(app$get_text("#results-vs_policy"), "\u25b2|\u25bc")
+
+  # Technical details stay reachable (6.5: never a KPI).
+  expect_true(js_truthy("!!document.querySelector('#results-exp_id')"))
+  expect_match(app$get_text("#results-exp_id"), "[0-9a-f-]{8,}")
+
+  # The three cumulative curves rendered. The htmlwidget paints
+  # asynchronously, so wait for it rather than sampling once.
+  app$wait_for_js(paste0(
+    "(function(){ var e = document.querySelector('#results-plot_history');",
+    "return !!e && e.children.length > 0; })()"), timeout = 25000)
+  expect_true(js_truthy(paste0(
+    "(function(){ var e = document.querySelector('#results-plot_history');",
+    "return !!e && e.children.length > 0; })()")))
+  expect_true(visible("#results-feedback"))
+})
+
+# --- 10. the feedback modal (6.5) ------------------------------------------
+
+test_that("the feedback modal saves a rating", {
+  app$click(selector = "#results-feedback")
+  has_text(".modal", "How was your day", timeout = 15000)
+
+  # Submitting without a rating must not close the dialog.
+  app$click(selector = "#results-feedback-send")
+  Sys.sleep(1)
+  expect_true(js_truthy("!!document.querySelector('.modal')"))
+
+  # A real click on the radio, inside the modal, is what a player does.
+  app$run_js(paste0(
+    "var r = document.querySelector('input[name=\"results-feedback-rating\"]",
+    "[value=\"4\"]'); if (r) r.click();"))
+  app$click(selector = "#results-feedback-send")
+  app$wait_for_js("!document.querySelector('.modal')", timeout = 20000)
+  expect_false(js_truthy("!!document.querySelector('.modal')"))
+})
+
+# --- 11. the app forwarded the client IP ------------------------------------
 
 test_that("the API received the X-Client-IP the app saw", {
   seen <- httr2::request(paste0(mock_url, "/__last")) |>
