@@ -137,7 +137,7 @@ draw_route <- function(map, t, z) {
   route <- data.frame(lng = coords[, 1], lat = coords[, 2])
   map |>
     addPolylines(data = route, lng = ~lng, lat = ~lat, group = "route",
-                 weight = 3, color = "#6d5dfc", opacity = 0.7) |>
+                 weight = 3, color = brand_colour(), opacity = 0.7) |>
     addCircleMarkers(data = route, lng = ~lng, lat = ~lat, group = "route",
                      radius = 6, stroke = FALSE, fillOpacity = 0.9,
                      fillColor = if (nrow(route) >= 2)

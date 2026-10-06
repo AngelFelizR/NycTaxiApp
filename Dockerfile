@@ -101,6 +101,14 @@ COPY nix/r-api.nix /root/nix/r-api.nix
 RUN nix-build /root/nix/r-api.nix -o /nix/profiles/r-api && \
     nix-collect-garbage -d
 
+# ── Layer 9c: shared visual config reader (yaml) ────────────────────────────
+# MUST land before Layer 10: default.nix auto-discovers nix/r-*.nix with
+# readDir, so without this COPY the baked shell would silently come out
+# without `yaml` and shared/load.R would fail at runtime.
+COPY nix/r-shared.nix /root/nix/r-shared.nix
+RUN nix-build /root/nix/r-shared.nix -o /nix/profiles/r-shared && \
+    nix-collect-garbage -d
+
 # ── Layer 10: realizar el shell completo (incluye stdenv toolchain) ─────────
 COPY default.nix /root/default.nix
 RUN nix-build /root/default.nix -A shell -o /nix/profiles/dev-shell && \

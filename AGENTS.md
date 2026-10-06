@@ -4,7 +4,9 @@ Este repo es el **monorepo** del "NYC Taxi Decision Simulator". El
 `04 - Documento Maestro de Decisiones del Proyecto.md` es la **fuente de verdad**
 y **no debe modificarse nunca**. Estructura destino (§1.3): `contract/`, `api/`,
 `app/`, `share/`, `infra/`, `tools/`, `integration/`, `nix/`, `docs/`,
-`.github/workflows/`.
+`.github/workflows/`. **Dos extensiones del árbol anotadas** (el §1.3 no las
+lista; se registran aquí y en `CHANGELOG.md`, nunca corrigiendo el documento):
+`integration/` y `shared/`.
 **Fase 0 hecha:** todas las carpetas existen (con `.gitkeep`), los dos
 contratos OpenAPI 3.1 están escritos y validados con Spectral (0 errores), y en
 la raíz hay `README.md`, `CHANGELOG.md`, `LICENSE` (MIT), `.env.example` y
@@ -36,11 +38,14 @@ teclado (`www/js/shortcuts.js`); todos los módulos viven en `R/modules/`;
 con los 6 KPIs, las 3 curvas, el percentil, la insignia de semilla y los
 detalles técnicos + `mod_feedback`; la jornada termina en `POST /finish`
 (único sitio que calcula `outcome` y `user_percentile`), y el mock reproduce
-la precedencia de §3.10. **Pendiente:** la otra mitad de la fase 6 — botones
-de compartir y segundo prompt de email en Results, y el servicio `share/`
-(imagen propia, PNG con `patchwork`+`ragg`, HTML con OG) con su SMTP/SPF/DKIM;
-luego `infra/`, `integration/`, `docs/operations/runbook.md` (§8.8),
-`docs/investigation-phases/` (fase 9) y las imágenes/CI (§14, fases 7-9).
+la precedencia de §3.10. **Servicio `share/` hecho** (ver su sección): las 3
+rutas de `contract/share.openapi.yaml`, 150 assertions y arranque verificado.
+**Fase 6 entera hecha:** `mod_share` (Download PNG / Copy link / X /
+LinkedIn + el segundo prompt de email de §6.5) montado en `mod_results`,
+`api_share_email` y el mock de `/share-email`. **Pendiente:** el SMTP/SPF/DKIM
+del envío real; luego `infra/`, `integration/`,
+`docs/operations/runbook.md` (§8.8), `docs/investigation-phases/` (fase 9) y
+las imágenes/CI (§14, fases 7-9).
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -101,17 +106,42 @@ luego `infra/`, `integration/`, `docs/operations/runbook.md` (§8.8),
 - Toda la superficie pública se documenta aquí; `app/` y `share/` son los únicos
   clientes de la API y ningún endpoint es accesible desde Internet.
 
-## Tests: tres paquetes de R separados
+## Tests: cuatro paquetes de R separados
 - `app/` → tests de **UI** (unitarios de módulos + `shinytest2`).
 - `api/` → tests de la **API** (`testthat` con el **Postgres fijo del compose**
   raíz, no testcontainers — `docs/decisions/0001-*`), Redis real para el
   caché de `/sensitivity` (se salta si no responde).
+- `share/` → tests del **servicio público**: bot de filtro, HTML, PNG, cliente
+  API (httr2 *mockeado*) y Redis; `test-routes.R` arranca el servicio **y un
+  stub de la API** en dos procesos hijo con `callr` y les dispara de verdad.
+  Redis debe estar en pie (si no, se salta); no necesita la API.
 - `integration/` en la raíz → paquete R propio de tests de **integración** API↔UI
   (extensión al árbol §1.3; el doc solo contempla `test-contract`, `test-api`,
   `test-shiny`, `test-share` en el CI — añadir `test-integration` al crear el CI).
   Hoy está **vacío** (solo `.gitkeep`): aún no tiene `DESCRIPTION` ni `tests/`.
-- `app/` y `api/` sí tienen su `DESCRIPTION` y su `tests/` (ver
-  `docs/REPO_DECISION.md`); `share/`, al nacer en la fase 6, repetirá ese patrón.
+- `app/`, `api/` y `share/` sí tienen su `DESCRIPTION` y su `tests/` (ver
+  `docs/REPO_DECISION.md`); `integration/` repetirá ese patrón al nacer.
+
+## `mod_share`: los botones y el email de Results (6.5, 7.3, 7.4)
+- `app/R/modules/mod_share.R` vive **dentro** de `mod_results` (igual que
+  `mod_feedback`): `mod_share_ui(ns("share"))` + `mod_share_server("share",
+  estado)`, así que los ids son `results-share-*`.
+- **Los tres enlaces son `<a>` con `href="#"` y el servidor los apunta** cuando
+  `estado$share_token` existe (mismo truco que el color de vs-policy). §6.1.1
+  prohíbe `renderUI` para estructura, y un `<a>` de verdad conserva la
+  activación del usuario: X/LinkedIn abren pestaña en vez de ser bloqueadas,
+  y se pueden abrir con clic central. `shinyjs::runjs` hace el trabajo **dentro
+  del clic** y `dataset.shareReady` evita volver a cablear.
+- Cada clic emite `{"event":"share_click","channel":"..."}` a stderr vía
+  `log_event()` (`app/R/utils.R`), una línea JSON por evento (7.4).
+- **`ShareEmailRequest.email` es opcional, pero el cuerpo nunca puede faltar**:
+  este plumber2 solo despacha un POST con cuerpo JSON. `api_share_email()`
+  manda `list()` con nombres (serializa a `{}`) cuando no hay dirección.
+- `SHARE_BASE_URL` (defecto `https://nyctaxiapp.angelfeliz.com`) es la base
+  pública: Results construye `{base}/share/{token}`. En dev apunta al servicio.
+- El **segundo prompt** (6.5) aparece solo si `estado$email` está vacío —
+  `mod_setup` lo guarda en el observer de creación, y un día reanudado con
+  `?exp=` nunca lo tuvo.
 
 ## La UI vive en `app/`
 `app/` contiene la app Shiny completa: `app.R`, `R/`, `www/`, `tests/`, `dev/`
@@ -136,14 +166,21 @@ luego `infra/`, `integration/`, `docs/operations/runbook.md` (§8.8),
 
 ## Comandos (cwd = `app/` salvo indicación)
 - Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` →
-  **155 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
+  **225 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
   paquete instalado; `helper-load.R` hace `source()` a mano de todo `R/*.R` y
   `R/modules/*.R` (el orden importa). En el shell **raíz** salen
-  **112 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
+  **173 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
   de flujo se salta con un mensaje que apunta al shell correcto.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - Tests del **cliente** API sin servidor: `httr2::with_mocked_responses()`
   (`app/tests/testthat/test-api_client.R`) — no confundir con los de la API.
+- Tests del **servicio share** (cwd = `share/`):
+  `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` → **155 PASS**
+  (0 warnings). Redis tiene que estar en pie; si no, `test-cache.R` y
+  `test-routes.R` se saltan. No necesita la API: `test-routes.R` arranca un
+  stub suyo. Arrancarlo a mano (cwd = raíz):
+  `nix-shell share/default.dev.nix --run "Rscript share/plumber.R"` →
+  escucha en `SHARE_PORT` (8020) e imprime la URL base y el RSS.
 - Test de flujo (`test-shinytest2.R`, fases 4-6): levanta `dev/mock_api.R` en un
   puerto aleatorio, arranca la app real en Chromium headless y recorre
   Setup → semilla → modal → Trips → todas las decisiones hasta cerrar la
@@ -237,7 +274,10 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - `nix-shell default.dev.nix --run 'Rscript -e "shiny::runApp(\".\", port = 3838)"'`
   (o `Rscript app/app.R` desde la raíz). Debe imprimir `Listening on ...` en
   **< 3 s** — criterio de la fase 4; medirlo si se toca el arranque.
-- **Presupuesto actual ~2,3 s** (medido: 2,24-2,51 s en 9 arranques). La mayor
+- **Presupuesto actual ~2,6 s** (medido: 2,52-2,71 s en 5 arranques cálidos;
+  el **primer** arranque tras entrar al shell es frío y marca 3,9-4,9 s — es
+  R yendo a disco, no la app; sourcear todo `app/R/` con `shared/` cuesta
+  0,15-0,18 s). La mayor
   partida es `ggiraph::girafeOutput` (~1,1 s: al construir la UI carga los
   namespaces de ggplot2 y ggiraph), así que no se adelante ninguna carga de
   namespace sin volver a medir.
@@ -263,8 +303,8 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 - El catálogo de los 18 endpoints (`X-Internal-Key`, `X-Resume-Code`, rate
   limit) está en §5.2 y en `contract/openapi.yaml`, que es lo que el cliente
   implementa. `R/modules/mod_results.R` es la pantalla final (6 KPIs,
-  percentil, insignia de semilla); la fase 6 pendiente es **`share/`** y los
-  botones de compartir.
+  percentil, insignia de semilla); la fase 6 pendiente es **el envío real por
+  SMTP** — los botones y el `share/` ya existen y se documentan más abajo.
 - **La jornada solo termina en `POST /finish`** (§4.6: `outcome` y
   `user_percentile` se calculan "siempre en el servidor"). `mod_trips` lo
   llama cuando `shift_over()` ve `pending_hours <= 0`; nada más cambia el
@@ -274,10 +314,88 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
   cuerpo JSON (sin él cae al catch-all); `api/dev/e2e_experiments.sh` ya
   enviaba `-d '{}'` por el mismo motivo.
 
+## El servicio público `share/`
+- **Es el único servicio expuesto a Internet** (§5.10, §7): por eso no lleva
+  credenciales de base de datos ni modelos — solo habla con
+  `GET /share-data/{token}` y `POST /waitlist` de la API privada, con
+  `X-Internal-Key` + `X-Client-IP`. `TAXI_API_URL` del `.env` apunta a
+  `http://api:8000` (red Docker), así que **fuera de compose hay que pasarlo
+  a mano** (`TAXI_API_URL=http://127.0.0.1:8000`); si no, la llamada no
+  resuelve y el servicio responde 503 — que es exactamente el fail-safe
+  previsto, no un bug.
+- **`plumber2::format_png()` es un serializador de GRÁFICOS:** abre un
+  device, captura lo que se dibuje y **descarta `response$body`**. La tarjeta
+  salía en blanco (1,8 KB) con el handler ya habiendo renderizado 51 KB de
+  píxeles reales. Por eso **todas** las rutas se registran con
+  `serializers = application/json` (que es lo que la contrato pide para cada
+  error) y cada éxito cambia de tipo **dentro del handler** con
+  `response$set_formatter("image/png" = function(x) x, default = "image/png")`
+  (o `"text/html" = reqres::format_plain()`). Dejarlo a la negociación de
+  plumber2 haría que `Accept: */*` eligiera la imagen y escondiera el
+  documento de error. El formatter del PNG es una identidad: los bytes ya los
+  produce `share_png()`.
+- **`httr2::req_perform()` lanza en 4xx/5xx por defecto**, así que sin
+  `is_error = ~ FALSE` cada status real cae en el `tryCatch` y la página
+  contesta 503 para un token desconocido. `api_request()` lo fija en **una
+  sola** llamada a `req_error()` (guarda `is_error` y `body` a la vez;
+  llamarlo dos veces pisa el primero).
+- El orden de registro importa: `/share/<token>.png` **antes** que
+  `/share/<token>`, o el patrón padre se traga el sufijo. Ambos patrones
+  funcionan (verificado), y `api_any("//*")` cierra la cola.
+- `share/R/routes.R` expone `share_api()` para que los tests construyan la
+  app sin llamar a `api_run()`. **Nunca pases un objeto `api` de plumber2 de
+  un proceso a otro**: los closures/environments no sobreviven bien y todo
+  devuelve 500; el hijo debe hacer `source()` y construirlo.
+- La plantilla del stub que usan los tests (`helper-boot.R`) entrega **listas**,
+  nunca JSON ya serializado: el serializer es el que codifica, y pasar texto
+  envuelve el documento entero en una cadena JSON.
+- **Nunca sondear un puerto con `socketConnection(server = TRUE)`**: R se
+  bloquea en `accept()` aunque `blocking = FALSE`. `free_port()` lee
+  `/proc/net/tcp` (estado `0A` = LISTEN) — exacto y sin bloquear.
+
+## `shared/` — la configuración visual compartida (extensión del árbol §1.3)
+- **Qué hay:** `shared/curves.yaml` (las 3 curvas: orden, etiqueta, color) y
+  `shared/brand.yaml` (`primary`, `primary_dark`), leídos por **ambos**
+  frontends a través de `shared/load.R` (el único código del directorio).
+  El porqué y las alternativas descartadas: `docs/decisions/0003-shared-visual-config.md`.
+- **§1.3 no lista `shared/`** (tampoco `integration/` ni `AGENTS.md`): divergencia
+  anotada aquí y en `CHANGELOG.md`, **nunca corrigiendo el documento**.
+- **Orden de carga (crítico en `app/`):** Shiny fuentea `R/*.R` **antes** del
+  cuerpo de `app.R` (verificado con un probe) y `strings.R` construye sus
+  `label_curve_*` con `curve_labels()`. Por eso existe `app/R/shared_config.R`:
+  busca `shared/load.R` por candidatos y se fuentea **dentro** de `R/`. Solo
+  funciona porque `R/` se fuentea en orden alfabético
+  (`constants` → `shared_config` → `state` → `strings`): **no renombrar
+  `shared_config.R` a algo que pase de `strings.R`, ni sacarlo de `R/`.**
+- **`shared/load.R` valida, YAML no:** no hay esquema. `validate_curves()` y
+  `validate_brand()` exigen 3 series en orden `user, policy, baseline`, etiquetas
+  no vacías ni repetidas, colores `^#[0-9a-fA-F]{6}$` únicos y
+  `primary ≠ primary_dark`, y fallan con mensaje legible. Están **exportadas a
+  propósito** para que ambos test suites las alimenten con basura.
+- **Gotcha:** los colores van **entrecomillados**. `colour: #6d5dfc` sin comillas
+  abre un comentario YAML y parsea a `null` (el validador lo detecta).
+- **`shared_dir()` resuelve por candidatos** (`SHARED_DIR` → `./shared` →
+  `../shared` → `../../shared` → `/srv/nyctaxi/shared`), el mismo truco que
+  `app_data_dir()`. `SHARED_DIR` es la perilla que usará la fase 7.
+- **Nix:** `nix/r-shared.nix` (solo `yaml`), importado por `nix/r-app.nix` y por
+  `share/default.dev.nix`; el shell raíz lo recibe solo (auto-descubre `r-*.nix`).
+  **Fase 7:** el `Dockerfile` necesita la capa **9c** (`COPY` antes de la 10, o
+  el shell horneado sale sin `yaml`) y las imágenes deben `COPY shared/`.
+- **No rompe la frontera de `docs/REPO_DECISION.md`:** esa regla ("la app nunca
+  importa código de la API") protege `api/`↔`app/`; `shared/` es
+  **configuración de datos** que leen dos frontends, no código de un servicio.
+- **Consumidores:** `strings.R` (alias `label_curve_*`, por §6.2), `mod_results`,
+  `theme.R`, `mod_setup`, `mod_trip_card`, `mod_sensitivity` (marca) y
+  `share/render_png.R` + `share/render_html.R`. El hex literal ya **no existe**
+  en `app/R/` ni en `share/R/`: `grep -rn "6d5dfc\|8b7dff" app/R share/R` debe
+  volver vacío.
+
 ## Fuente de verdad y prioridad entre documentos
 - **Documento maestro = decisiones de arquitectura; no se edita.** Si el código
   actual diverge del doc, el doc marca la meta y el código el estado actual:
-  anotar la diferencia, nunca "corregir" el documento.
+  anotar la diferencia **en `CHANGELOG.md`** (y en AGENTS si afecta a la
+  estructura), nunca "corregir" el documento. Precedentes: el create asíncrono
+  con §4.6, `shared/` con §1.3 y §6.4.
 - `contract/openapi.yaml` + `contract/share.openapi.yaml` = contrato HTTP
   **autoritativo**; toda implementación nueva se contrasta aquí y se
   revalida con Spectral (0 errores). La UI (`app/R/api_client.R`) ya habla

@@ -49,12 +49,15 @@ from the private network.
 | `infra/`   | (no image)                          | Nginx, ShinyProxy, backups, scripts |
 | `tools/`   | (no image)                          | Offline scripts (reference distribution) |
 | `integration/` | (no image)                       | R package with API↔UI integration tests |
+| `shared/`   | (no image)                          | Visual config (curve spec, brand palette) read by `app/` and `share/` |
 
 ## Repository layout
 
 - `contract/openapi.yaml` — private API (18 endpoints, all internal).
 - `contract/share.openapi.yaml` — public `share` service (3 routes).
 - `app/` — the Shiny app: `app.R`, `R/`, `www/`, `tests/`, `dev/mock_api.R`.
+- `shared/` — YAML visual config shared by `app/` and `share/`
+  (`curves.yaml`, `brand.yaml`), read through `shared/load.R`.
 - `nix/` — pinned nixpkgs modules; `default.nix` at the root aggregates them.
 - `docs/decisions/` — ADRs · `docs/operations/` — runbook ·
   `docs/REPO_DECISION.md` — monorepo vs. split-repos analysis.

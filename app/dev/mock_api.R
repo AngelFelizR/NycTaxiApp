@@ -287,8 +287,37 @@ mock_sensitivity <- function(request, response, body) {
 mock_last_seen <- function(request, response) {
   response$body <- list(
     ip = if (is.null(mock_env$last_ip)) "" else mock_env$last_ip,
-    key = if (is.null(mock_env$last_key)) "" else mock_env$last_key
+    key = if (is.null(mock_env$last_key)) "" else mock_env$last_key,
+    # Kept apart from `last_*`: the test reads /__last at the very end, long
+    # after the call that set it.
+    share_email = mock_env$last_share_email %||% ""
   )
+  plumber2::Break
+}
+
+# POST /experiments/{id}/share-email (5.6): same guards as feedback, plus the
+# address check. `email` may be absent when it was given in Setup.
+mock_share_email <- function(request, response, id, body) {
+  day <- get0(id, envir = mock_env$days, inherits = FALSE)
+  if (is.null(day)) {
+    return(mock_fail(response, 404L, "not_found", "Experiment not found."))
+  }
+  if (!identical(request$get_header("x-resume-code"), day$resume_code)) {
+    return(mock_fail(response, 403L, "forbidden",
+                     "Invalid or missing X-Resume-Code header."))
+  }
+  payload <- mock_body(body)
+  email <- trimws(as.character(payload$email %||% "")[1])
+  if (nzchar(email) &&
+      (!grepl("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]{2,}$", email) ||
+       nchar(email) >= 254)) {
+    return(mock_fail(response, 422L, "unprocessable_entity",
+                     "That email address is not valid."))
+  }
+  mock_env$last_share_email <- email
+  day$share_email <- email
+  assign(id, day, envir = mock_env$days)
+  response$body <- list(message = "Email sent.")
   plumber2::Break
 }
 
@@ -419,6 +448,8 @@ mock_api <- function(host = "127.0.0.1", port = 8010L) {
                             serializers = js, parsers = pj)
   api <- plumber2::api_post(api, "/experiments/<id>/feedback", mock_feedback,
                             serializers = js, parsers = pj)
+  api <- plumber2::api_post(api, "/experiments/<id>/share-email",
+                            mock_share_email, serializers = js, parsers = pj)
   api <- plumber2::api_post(api, "/sensitivity", mock_sensitivity,
                             serializers = js, parsers = pj)
   # Same shape as api/plumber.R: a trailing catch-all so an unknown path

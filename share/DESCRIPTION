@@ -1,0 +1,20 @@
+Package: taxishare
+Title: Public Share Service for the NYC Taxi Decision Simulator
+Version: 0.1.0
+Description: Serves the two public share routes (an HTML page with Open Graph
+    tags and a 1200x630 PNG card) plus the waitlist. It never touches the
+    database: every figure comes from the private API over GET /share-data.
+Depends:
+    R (>= 4.1.0)
+Imports:
+    plumber2,
+    httr2,
+    jsonlite,
+    ggplot2,
+    patchwork,
+    ragg,
+    redux,
+    yaml
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

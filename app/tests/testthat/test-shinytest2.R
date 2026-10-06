@@ -335,7 +335,70 @@ test_that("the feedback modal saves a rating", {
   expect_false(js_truthy("!!document.querySelector('.modal')"))
 })
 
-# --- 11. the app forwarded the client IP ------------------------------------
+# The mock remembers the last address /experiments/{id}/share-email carried.
+last_share_email <- function() {
+  httr2::request(paste0(mock_url, "/__last")) |>
+    httr2::req_headers(`X-Internal-Key` = mock_key) |>
+    httr2::req_timeout(5) |>
+    httr2::req_perform() |>
+    httr2::resp_body_json() |>
+    (function(x) x$share_email %||% "")()
+}
+
+# --- 11. the share buttons and the second email prompt (6.5, 7.3) -----------
+
+test_that("Results links the card and asks for the email Setup never sent", {
+  # The anchors ship with href="#" and the server points them at the card once
+  # the day carries a share_token: section 6.1.1 forbids renderUI for
+  # structure, so this is the same pattern as the vs-policy colour.
+  app$wait_for_js(paste0(
+    "(function(){var e=document.getElementById('results-share-download');",
+    "return !!e && e.dataset.shareReady === '1';})()"), timeout = 20000)
+
+  href <- app$get_js("document.getElementById('results-share-download').href")
+  expect_match(href, "/share/[A-Za-z0-9_-]+\\.png$")
+  expect_match(app$get_js("document.getElementById('results-share-x').href"),
+               "twitter\\.com/intent/tweet\\?url=")
+  expect_match(app$get_js("document.getElementById('results-share-linkedin').href"),
+               "linkedin\\.com/sharing/share-offsite/")
+
+  # Setup never filled the email field, so the button has to ask for one
+  # instead of sending blind (6.5: "Segundo prompt de email").
+  app$click(selector = "#results-share-email")
+  has_text(".modal", "Where should we send your card", timeout = 15000)
+
+  # Fill the field the way a player does. set_inputs() writes Shiny's input
+  # map directly, and the text binding re-reads the DOM on the next flush, so
+  # it can be overwritten before the click lands.
+  set_email <- function(value) app$run_js(sprintf(paste0(
+    "(function(){var e=document.getElementById('results-share-email_addr');",
+    " if(!e) return; e.value=%s;",
+    " e.dispatchEvent(new Event('change',{bubbles:true}));})()"),
+    jsonlite::toJSON(value, auto_unbox = TRUE)))
+
+  set_email("nope")
+  app$click(selector = "#results-share-send")
+  Sys.sleep(1)
+  # An invalid address must not close the dialog or hit the API.
+  expect_true(js_truthy("!!document.querySelector('.modal')"))
+  expect_equal(last_share_email(), "")
+
+  set_email("driver@example.com")
+  app$click(selector = "#results-share-send")
+  app$wait_for_js("!document.querySelector('.modal')", timeout = 20000)
+  expect_false(js_truthy("!!document.querySelector('.modal')"))
+  expect_equal(last_share_email(), "driver@example.com")
+  expect_false(js_truthy("!!document.querySelector('.modal')"))
+
+  last <- httr2::request(paste0(mock_url, "/__last")) |>
+    httr2::req_headers(`X-Internal-Key` = mock_key) |>
+    httr2::req_timeout(5) |>
+    httr2::req_perform() |>
+    httr2::resp_body_json()
+  expect_equal(last$share_email, "driver@example.com")
+})
+
+# --- 12. the app forwarded the client IP ------------------------------------
 
 test_that("the API received the X-Client-IP the app saw", {
   seen <- httr2::request(paste0(mock_url, "/__last")) |>

@@ -13,6 +13,10 @@ suppressPackageStartupMessages({
 })
 app_dir <- normalizePath(file.path("..", ".."))
 
+# shared/*.yaml first: strings.R builds its label_curve_* aliases from
+# curve_labels(). Also makes R/shared_config.R's candidate loop a no-op.
+source(file.path(app_dir, "..", "shared", "load.R"))
+
 for (rel in c(
   list.files(file.path(app_dir, "R"), pattern = "\\.[rR]$"),
   file.path("modules", list.files(file.path(app_dir, "R", "modules"),

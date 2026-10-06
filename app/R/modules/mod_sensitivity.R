@@ -105,7 +105,7 @@ mod_sensitivity_server <- function(id, estado, reset) {
                                          trip_time_sec, driver_pay, 100 * prob)),
           colour = "white", linewidth = 0.2
         ) +
-        ggplot2::scale_fill_gradient(low = "#f6f7f9", high = "#6d5dfc",
+        ggplot2::scale_fill_gradient(low = "#f6f7f9", high = brand_colour(),
                                      limits = c(0, 1), name = "P(accept)") +
         ggplot2::labs(x = "Trip time (s)", y = "Driver pay ($)",
                       title = label_sensitivity_plot) +

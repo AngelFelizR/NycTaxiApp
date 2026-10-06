@@ -103,9 +103,13 @@ btn_busy <- "Sending..."
 label_sensitivity <- "Model Results"
 label_sensitivity_plot <- "Decision boundary by zone"
 label_history <- "Cumulative pay"
-label_curve_user <- "You"
-label_curve_policy <- "Model"
-label_curve_baseline <- "Accept all"
+# Curve legend labels. The values live in shared/curves.yaml so app/ and
+# share/ cannot drift; they are re-exported here to keep this file the one
+# place with the app's user-facing text (6.2). R/shared_config.R loads the
+# YAML first -- it sorts before strings.R in R/ (alphabetical).
+label_curve_user     <- curve_labels()[["user"]]
+label_curve_policy   <- curve_labels()[["policy"]]
+label_curve_baseline <- curve_labels()[["baseline"]]
 label_no_day <- "Start a day in the Setup tab first."
 label_no_trip <- "Waiting for the next trip..."
 label_model_accept <- "Accept trip"
@@ -166,6 +170,22 @@ btn_feedback_submit <- "Send"
 btn_feedback_close <- "Not now"
 msg_feedback_saved <- "Feedback saved. Thank you."
 err_feedback_rating <- "Pick a rating before sending."
+
+# ---- share (6.5 / 7.3) -----------------------------------------------------
+label_share_download <- "Download PNG"
+label_share_copy <- "Copy link"
+label_share_x <- "Share on X"
+label_share_linkedin <- "Share on LinkedIn"
+label_share_email <- "Email me my card"
+label_share_email_title <- "Where should we send your card?"
+label_share_email_help <- "We send the card and nothing else."
+btn_share_email_send <- "Send"
+btn_share_email_close <- "Not now"
+msg_share_copied <- "Link copied."
+msg_share_copy_failed <- "Could not copy. Select the link from your address bar."
+msg_share_email_sent <- "Your card is on its way. Check your inbox."
+err_share_email <- "Enter a valid email address."
+err_share_email_api <- "We could not send the email. Please try again later."
 
 # ---- generic ---------------------------------------------------------------
 err_api_prefix <- "API error:"

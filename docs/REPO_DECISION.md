@@ -42,6 +42,9 @@ de separar (filas 6–13) todavía no se están pagando.
 Fronteras que hacen barata la separación futura:
 
 - La app **nunca** importa código de la API ni al revés; solo hablan por HTTP.
+  (Esa regla protege `api/` ↔ `app/`: `shared/` es **configuración de datos**
+  que leen los dos frontends, `app/` y `share/`, sin que ninguno importe código
+  del otro -- ver `docs/decisions/0003-shared-visual-config.md`.)
 - El contrato vive en un solo archivo versionado (hoy `API_CONTRACT.md`; ideal: `openapi.yaml`).
 - Cada pieza tiene su propio `DESCRIPTION`/`renv.lock`, `tests/` y `Dockerfile`.
 - El CI usa filtros por ruta, de modo que tocar `app/` no redespliega `api/`.

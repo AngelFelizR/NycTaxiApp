@@ -112,3 +112,37 @@ test_that("ordinal renders the percentile the way 4.6 spells it", {
   expect_equal(ordinal(62.5), "62nd")
   expect_equal(ordinal(NA), "")
 })
+
+
+# ---- share URLs and the structured click log (7.3, 7.4) ---------------------
+
+test_that("share_base_url never keeps a trailing slash", {
+  old <- Sys.getenv("SHARE_BASE_URL", unset = NA)
+  on.exit(if (is.na(old)) Sys.unsetenv("SHARE_BASE_URL")
+          else Sys.setenv(SHARE_BASE_URL = old))
+  Sys.setenv(SHARE_BASE_URL = "http://localhost:8020/")
+  expect_equal(share_base_url(), "http://localhost:8020")
+  Sys.setenv(SHARE_BASE_URL = "")
+  expect_equal(share_base_url(), "https://nyctaxiapp.angelfeliz.com")
+})
+
+test_that("share_url builds the card link and refuses an empty token", {
+  old <- Sys.getenv("SHARE_BASE_URL", unset = NA)
+  on.exit(if (is.na(old)) Sys.unsetenv("SHARE_BASE_URL")
+          else Sys.setenv(SHARE_BASE_URL = old))
+  Sys.setenv(SHARE_BASE_URL = "https://example.org")
+  expect_equal(share_url("aZ3kQ9mLp1Rt"), "https://example.org/share/aZ3kQ9mLp1Rt")
+  expect_equal(share_url(""), "")
+  expect_equal(share_url(NULL), "")
+  expect_equal(share_url(NA_character_), "")
+})
+
+test_that("log_event writes one JSON object per line to stderr", {
+  out <- capture.output(log_event("share_click", channel = "x"),
+                        type = "message")
+  expect_length(out, 1)
+  parsed <- jsonlite::fromJSON(out)
+  expect_equal(parsed$event, "share_click")
+  expect_equal(parsed$channel, "x")
+  expect_true(nzchar(parsed$ts))
+})

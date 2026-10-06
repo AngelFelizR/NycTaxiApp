@@ -184,6 +184,22 @@ api_feedback <- function(ctx, experiment_id, rating, comment = NULL,
     api_json()
 }
 
+# POST /experiments/{id}/share-email (5.6): `email` is optional when it was
+# already given in Setup, but this plumber2 only dispatches a POST route when
+# the request carries a JSON body, so the body is never empty -- `{}` when the
+# address lives on the server side.
+api_share_email <- function(ctx, experiment_id, email = NULL) {
+  body <- if (is.null(email) || !nzchar(trimws(as.character(email)[1]))) {
+    structure(list(), names = character())
+  } else {
+    list(email = trimws(as.character(email)[1]))
+  }
+  api_request(ctx, file.path("experiments", experiment_id, "share-email"),
+              resume = TRUE) |>
+    req_body_json(body) |>
+    api_json()
+}
+
 # ---- sensitivity (phase 2) --------------------------------------------------
 
 # POST /sensitivity -> three grids (original, pickup, drop-off) plus display

@@ -9,6 +9,41 @@ service at once.
 
 ### Added
 
+- **Phase 6, the `share/` half: the public share service.** Its own package
+  (`share/DESCRIPTION`), its own dev shell (`share/default.dev.nix`) and its
+  own test suite (150 assertions). Three routes from
+  `contract/share.openapi.yaml`: `GET /share/{token}.png` (1200x630 card,
+  `patchwork` + `ragg`, bytes cached in Redis for 24 h, served with
+  `max-age=86400, s-maxage=604800`), `GET /share/{token}` (static HTML with
+  Open Graph in the `<head>`, **no JavaScript at all**, `Cache-Control:
+  no-store` so the view counter can see the hit) and `POST /waitlist`
+  (validation + forward). Plus `GET /health` for the container healthcheck.
+  No database credentials and no models exist here by design: every number
+  comes from `GET /share-data/{token}` over the Docker network with
+  `X-Internal-Key` + `X-Client-IP`.
+- `share/R/bots.R` + `share/R/cache.R`: the User-Agent filter of 7.4 (crawlers
+  do not increment `share:views:{token}`) and the two Redis keys the service
+  owns. Both fail open -- if Redis is down the card is rendered fresh and the
+  view is simply not counted.
+- `share/R/routes.R` holds the handlers and a `share_api()` builder so the
+  tests can build the app without calling `api_run()`.
+- `nix/r-share.nix` (plumber2, httr2, patchwork, ragg, redux) for the service
+  and its phase-7 image; `nix/r-dev.nix` gained `callr`, which
+  `test-routes.R` uses to boot the service and a stub of the API as child
+  processes.
+- **`mod_share`: the four share buttons and the second email prompt (6.5).**
+  Download PNG, Copy link, Share on X and Share on LinkedIn live in their own
+  module mounted inside `mod_results`, plus "Email me my card" which asks for
+  an address only when Setup never got one (5.6: `email` is optional in the
+  body then). The three links are plain `<a>` elements the server points at
+  the card once `estado$share_token` exists -- section 6.1.1 forbids
+  `renderUI` for structure, and a real anchor keeps the browser's user
+  activation so X and LinkedIn open a tab instead of being blocked, and stays
+  middle-clickable. `api_share_email` joins the client, `SHARE_BASE_URL` gives
+  them their origin, and every click writes `{"event":"share_click",
+  "channel":"..."}` to stderr (7.4). The mock grew `/experiments/{id}/share-email`
+  and reports the address it received through `/__last`.
+
 - Phase 6, the app half: `mod_results` shows the finished day with the six
   KPIs of section 6.5 (Total Earnings, Hourly Wage, vs Policy, Trips Accepted,
   Trips Rejected, % Following Policy), the three cumulative curves in
@@ -31,8 +66,36 @@ service at once.
   outcome precedence -- so Results can be exercised without models or a
   database.
 
+- **`shared/`: una sola especificación visual para `app/` y `share/`.**
+  `shared/curves.yaml` (las 3 curvas: orden, etiqueta, color) y
+  `shared/brand.yaml` (`primary`, `primary_dark`) se leen desde ambos
+  frontends mediante `shared/load.R`, que localiza el directorio por
+  candidatos, parsea una sola vez y **valida** lo que YAML no puede (3 series
+  en orden `user, policy, baseline`, etiquetas no vacías ni repetidas, colores
+  hex únicos, `primary != primary_dark`). Los hex literales desaparecen de
+  `app/R/` y `share/R/`: `grep -rn "6d5dfc" app/R share/R` vuelve vacío.
+  `nix/r-shared.nix` aporta `yaml` (importado por `r-app.nix` y por el shell
+  de `share/`) y el `Dockerfile` gana la capa **9c**, que tiene que ir antes de
+  la 10 o el shell horneado sale sin `yaml`. Alternativas descartadas y el
+  porqué en `docs/decisions/0003-shared-visual-config.md`.
+- `app/R/shared_config.R`: puente dentro de `R/` que sourcea `shared/load.R`.
+  Shiny fuentea `R/*.R` **antes** del cuerpo de `app.R` (verificado con un
+  probe), así que `strings.R` no puede calcular sus `label_curve_*` desde
+  `curve_labels()` si la carga vive en `app.R`. Solo funciona por el orden
+  alfabético de `R/` (`constants` -> `shared_config` -> `state` -> `strings`).
+
 ### Changed
 
+- **`plumber2`'s `@serializer png` is a graphics serializer: it discards
+  `response$body`.** It opens a device, captures whatever was drawn and
+  ignores the body, so the card came back as a blank 1.8 KB PNG while the
+  handler had already rendered 51 KB of real pixels. Every share route now
+  declares the JSON serializer (what every error in the contract needs) and
+  the success paths opt into `image/png` / `text/html` *inside the handler*
+  with `response$set_formatter(..., default = ...)` -- plumber2's own
+  negotiation would otherwise let `Accept: */*` pick the image and hide the
+  error document. The PNG formatter is a pass-through: the bytes are already
+  produced by `share_png()`.
 - **`/finish` now sends `{}`.** The route declares no `requestBody`, and the
   real API answers it either way (verified: handler runs with and without one),
   but this plumber2 build only dispatches a POST route when the request
@@ -202,6 +265,37 @@ service at once.
   child in `futex_wait` with no CPU at all. `api/plumber.R` warns loudly
   when R started without it, and `test-experiments-async.R` skips its fork
   test in that case.
+
+- **La paleta de marca deja de estar escrita en seis sitios.** `primary` y
+  `primary_dark` (§6.4) pasan a `shared/brand.yaml`: `theme.R`, las tres
+  acentos de Leaflet en `mod_setup`/`mod_trip_card`, el gradiente de
+  `mod_sensitivity` y el botón CTA del HTML de `share/` llaman a
+  `brand_colour()` en vez de repetir `#6d5dfc`. Las curvas hacen lo propio con
+  `curve_colours()` en `mod_results`. `strings.R` **no** pierde sus
+  `label_curve_*`: ahora son alias de `curve_labels()`, porque §6.2 dice que
+  `strings.R` es donde vive el texto de cara al usuario en inglés.
+- **`share/R/render_png.R` ya no define `curve_specs()`.** Lo que la tarjeta
+  dibuja y lo que Results dibuja salen del mismo fichero, que es el punto
+  entero del cambio.
+
+- **Divergences annotated, master document untouched.** §1.3's tree does not
+  list `shared/` (it does not list `integration/` or `AGENTS.md` either), and
+  the §6.4 snippet still shows the palette literal inline in `theme.R`:
+  ```r
+  primary = if (modo == "light") "#6d5dfc" else "#8b7dff",
+  ```
+  The values themselves are unchanged -- the §6.4 palette table remains true
+  -- only where the literal lives. Both differences are recorded here rather
+  than "fixed" in the master document, which is never edited (precedent: the
+  asynchronous create vs §4.6).
+
+### Fixed
+
+- `httr2::req_perform()` throws on 4xx/5xx by default, so `api_share_data()`
+  collapsed every real status into a caught error and the share page answered
+  **503 for an unknown token** instead of 404. `api_request()` now sets
+  `is_error = ~ FALSE` (single `req_error()` call -- it stores both hooks at
+  once) so only transport failures map to 503.
 
 ## [0.1.0] - 2026-10-04
 

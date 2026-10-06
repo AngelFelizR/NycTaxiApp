@@ -16,7 +16,8 @@ Imports:
     promises,
     shinyjs,
     qs2,
-    jsonlite
+    jsonlite,
+    yaml
 Suggests:
     testthat (>= 3.0.0),
     shinytest2,

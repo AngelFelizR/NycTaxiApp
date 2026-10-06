@@ -1,0 +1,12 @@
+# Brand palette (master doc 6.4). `primary` is also the colour of the player's
+# curve and of the map accents, so it is read from here by theme.R, the Leaflet
+# layers and the share card's CSS instead of being spelled out in six places.
+#
+# Read through shared/load.R, which validates this file. Keep the values in
+# sync with the palette table of section 6.4: the master document states the
+# colours, this file only decides where they live.
+#
+# NOTE: quote the colours. A bare "#" starts a YAML comment, so `primary: #6d5dfc`
+# parses as null instead of a colour.
+primary: "#6d5dfc"
+primary_dark: "#8b7dff"

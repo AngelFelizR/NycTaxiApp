@@ -11,6 +11,9 @@
     paths = builtins.attrValues {
       inherit (pkgs.rPackages)
         testthat
+        # Background workers: share/tests/testthat/test-routes.R boots the
+        # service and a stub of the API in child processes.
+        callr
         plumber2;
     };
   }

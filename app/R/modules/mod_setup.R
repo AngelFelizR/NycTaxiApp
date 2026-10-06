@@ -187,7 +187,7 @@ mod_setup_server <- function(id, estado, reset) {
                   weight = 1, color = "#e3e6ea",
                   fillColor = "#ffffff", fillOpacity = 0.55,
                   highlightOptions = highlightOptions(
-                    weight = 2, color = "#6d5dfc", bringToFront = TRUE))
+                    weight = 2, color = brand_colour(), bringToFront = TRUE))
     })
 
     # Clicking a zone on the map selects it (shape click carries the layer id).
@@ -206,8 +206,8 @@ mod_setup_server <- function(id, estado, reset) {
       bb <- sf::st_bbox(sel)
       proxy |>
         addPolygons(data = sel, group = "selected",
-                    color = "#6d5dfc", weight = 3,
-                    fillColor = "#6d5dfc", fillOpacity = 0.25) |>
+                    color = brand_colour(), weight = 3,
+                    fillColor = brand_colour(), fillOpacity = 0.25) |>
         setView(lng = (bb["xmin"] + bb["xmax"]) / 2,
                 lat = (bb["ymin"] + bb["ymax"]) / 2, zoom = 11)
     }, ignoreInit = TRUE)

@@ -64,6 +64,10 @@ mod_results_ui <- function(id) {
           span(class = "kpi-value", textOutput(ns("model_version"), inline = TRUE)))
       ),
 
+      # 6.5: the four share buttons plus the second email prompt live in their
+      # own module so mod_results stays about the result itself.
+      mod_share_ui(ns("share")),
+
       div(class = "text-center my-3 d-flex gap-2 justify-content-center flex-wrap",
         actionButton(ns("feedback"), label_feedback_btn,
                      icon = icon("comment"), class = "btn-outline-secondary"),
@@ -79,6 +83,7 @@ mod_results_server <- function(id, estado, reset) {
     st   <- reactive(estado$state)
 
     feedback <- mod_feedback_server("feedback", estado)
+    mod_share_server("share", estado)
 
     # Every output lives inside a conditionalPanel, so each one has to opt out
     # of suspension: an output that only computes once it is visible would
@@ -184,11 +189,9 @@ mod_results_server <- function(id, estado, reset) {
                                    label_curve_baseline)),
         value = c(h$user, h$policy, h$baseline)
       )
-      # c(label = ...) would take the LITERAL name, not the string the label
-      # holds; assign the names after building the vector.
-      cols <- c("#6d5dfc", "#0369a1", "#94a3b8")
-      names(cols) <- c(label_curve_user, label_curve_policy,
-                       label_curve_baseline)
+      # Already named by legend label, which is what scale_colour_manual looks
+      # up -- shared/load.R guarantees the names match the data's levels.
+      cols <- curve_colours()
       p <- ggplot2::ggplot(long, ggplot2::aes(step, value, colour = series)) +
         ggiraph::geom_line_interactive(
           ggplot2::aes(tooltip = sprintf("%s \u00b7 after %d decisions \u00b7 $%.2f",

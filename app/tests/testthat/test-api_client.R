@@ -89,6 +89,29 @@ test_that("api_sensitivity drops empty zones and sets X-Device", {
   expect_equal(header_of(cap$seen$req, "x-resume-code"), "r")
 })
 
+test_that("api_share_email carries the address when Setup never got one", {
+  cap <- capture_request(list(message = "Email sent."))
+  res <- with_mocked_responses(cap$mock,
+    api_share_email(ctx_for(resume_code = "S3cret"), "abc", "  a@b.co "))
+
+  expect_match(cap$seen$req$url, "/experiments/abc/share-email$")
+  expect_equal(cap$seen$req$body$data$email, "a@b.co")
+  expect_equal(header_of(cap$seen$req, "x-resume-code"), "S3cret")
+  expect_equal(res$message, "Email sent.")
+})
+
+test_that("api_share_email still sends a JSON body without an address", {
+  # 5.6: the body may be empty, but this plumber2 only dispatches a POST route
+  # when the request carries a JSON body, so it has to be `{}` and not nothing.
+  cap <- capture_request(list(message = "Email sent."))
+  with_mocked_responses(cap$mock, api_share_email(ctx_for(), "abc", NULL))
+
+  expect_match(cap$seen$req$url, "/experiments/abc/share-email$")
+  expect_false("email" %in% names(cap$seen$req$body$data))
+  expect_equal(cap$seen$req$body$type, "json")
+  expect_false(is.null(cap$seen$req$body))
+})
+
 test_that("API errors surface the message sent by the server", {
   m <- function(req) response_json(status_code = 422L,
                                    body = list(message = "location_id must be between 1 and 265."))

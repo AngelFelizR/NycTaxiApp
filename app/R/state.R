@@ -59,6 +59,12 @@ estado_set_state <- function(estado, st) {
     estado$state <- st
     if (!is.null(st$status)) estado$status <- st$status
     if (!is.null(st$experiment_id)) estado$experiment_id <- st$experiment_id
+    # The share token is part of every DayState (contract) and is what the
+    # Results share buttons build their URLs from; a day resumed via ?exp=
+    # never went through estado_set_created, so keep it in sync here too.
+    if (!is.null(st$share_token) && nzchar(as.character(st$share_token)[1])) {
+      estado$share_token <- as.character(st$share_token)[1]
+    }
     if (!is.null(st$model_progress)) {
       estado$progress <- as.integer(st$model_progress)
     } else if (!identical(estado$status, "setup")) {

@@ -1,0 +1,20 @@
+# The three cumulative curves of every chart (master doc 6.5 and 7.1): the
+# Results screen and the share card must be indistinguishable, so the spec
+# lives once here and both services read it through shared/load.R.
+#
+# Row order IS the legend order. Read through shared/load.R, which validates
+# this file -- YAML has no schema, so a typo would otherwise surface as an NA
+# in the middle of a chart.
+#
+# NOTE: quote the colours. A bare "#" starts a YAML comment, so `colour: #6d5dfc`
+# parses as null instead of a colour.
+series:
+  - name: user
+    label: You
+    colour: "#6d5dfc"
+  - name: policy
+    label: Model
+    colour: "#0369a1"
+  - name: baseline
+    label: Accept all
+    colour: "#94a3b8"

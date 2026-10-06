@@ -12,8 +12,11 @@ let
   rGeo       = import ./r-geo.nix       { inherit pkgs; };
   rPlotting  = import ./r-plotting.nix  { inherit pkgs; };
   rDev       = import ./r-dev.nix       { inherit pkgs; };
+  # shared/*.yaml: the curve spec and the brand palette read through
+  # shared/load.R (docs/decisions/0003).
+  rShared    = import ./r-shared.nix    { inherit pkgs; };
 in
   pkgs.buildEnv {
     name = "r-app-pkgs";
-    paths = [ rShiny rGeo rPlotting rDev ];
+    paths = [ rShiny rGeo rPlotting rDev rShared ];
   }

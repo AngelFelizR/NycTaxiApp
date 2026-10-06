@@ -183,3 +183,28 @@ zone_points <- function(z, ids) {
   sel <- sel[stats::na.omit(ord), ]
   if (nrow(sel) == 0) NULL else sel
 }
+
+# Public origin the share URLs are built from (7.3): the buttons link at
+# {base}/share/{token}, never at a relative path, because the page lives behind
+# ShinyProxy and the card is served by a different service.
+share_base_url <- function() {
+  url <- Sys.getenv("SHARE_BASE_URL", "https://nyctaxiapp.angelfeliz.com")
+  if (!nzchar(url)) url <- "https://nyctaxiapp.angelfeliz.com"
+  sub("/+$", "", url)
+}
+
+share_url <- function(token) {
+  tok <- trimws(as.character(token %||% "")[1])
+  if (is.na(tok) || !nzchar(tok)) return("")
+  paste0(share_base_url(), "/share/", tok)
+}
+
+# Structured log line on stderr (7.4): one JSON object per line, no logger
+# dependency. `event` first so `grep share_click` still works in a raw log.
+log_event <- function(event, ...) {
+  payload <- c(list(event = event, ts = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ",
+                                                tz = "UTC")),
+               list(...))
+  cat(jsonlite::toJSON(payload, auto_unbox = TRUE), "\n", sep = "", file = stderr())
+  invisible(NULL)
+}
