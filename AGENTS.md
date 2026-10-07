@@ -18,14 +18,14 @@ ya existe (raíz, gitignored) con `MODELS_DIR` y `DATA_DIR` apuntando a
 tablas `participants`/`experiments`/`decisions`/`waitlist`), simulación del
 día, endpoints `/experiments/*`, `/share-data`, `/waitlist`, `/share-email`
 y `/metrics`, rate limit por IP, y `ReferenceDistribution.qs2` ya instalado
-en `MODELS_DIR` (suite API 477 assertions + `api/dev/e2e_experiments.sh`
+en `MODELS_DIR` (suite API y `api/dev/e2e_experiments.sh`
 en verde; ver la sección de experimentos). **Fase 4 hecha:** la UI (`app/`)
 habla con los endpoints reales del contrato: `mod_setup` con Leaflet
 bidireccional, validación con hints, email/marketing, semilla avanzada y el
 modal único de `resume_code`; `mod_header`, `mod_confirm_modal` y un
 `mod_results` mínimo; estado de sesión en `state.R` (reenvío de `X-Client-IP`);
 arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
-`app/dev/mock_api.R` y 92 assertions (unit + flujo `shinytest2` en Chromium).
+`app/dev/mock_api.R` con tests unitarios y de flujo `shinytest2` en Chromium.
 **Split de dependencias Nix hecho:** `nix/pkgs-app.nix` + `nix/r-app.nix` para
 la UI, `nix/test-tools.nix` solo con el navegador de los tests, `system.nix`
 de vuelta a lo genérico (sin `chromium`) y `r-dev.nix` sin `devtools`/
@@ -34,12 +34,12 @@ mapa con `leafletProxy`, Accept/Reject) y `mod_sensitivity` (selectize
 server-side + `renderGirafe`) extraídos de `mod_trips`, que ahora es la
 pantalla con sidebar 3/9, KPIs, barra de *pending time* y footer de atajos de
 teclado (`www/js/shortcuts.js`); todos los módulos viven en `R/modules/`;
-108 assertions (unit + flujo). **Fase 6 (mitad de `app/`) hecha:** `mod_results`
+con tests unitarios y de flujo. **Fase 6 (mitad de `app/`) hecha:** `mod_results`
 con los 6 KPIs, las 3 curvas, el percentil, la insignia de semilla y los
 detalles técnicos + `mod_feedback`; la jornada termina en `POST /finish`
 (único sitio que calcula `outcome` y `user_percentile`), y el mock reproduce
 la precedencia de §3.10. **Servicio `share/` hecho** (ver su sección): las 3
-rutas de `contract/share.openapi.yaml`, 150 assertions y arranque verificado.
+rutas de `contract/share.openapi.yaml` y arranque verificado.
 **Fase 6 entera hecha:** `mod_share` (Download PNG / Copy link / X /
 LinkedIn + el segundo prompt de email de §6.5) montado en `mod_results`,
 `api_share_email` y el mock de `/share-email`. **Fase 7 hecha:** ver su sección —
@@ -47,7 +47,8 @@ LinkedIn + el segundo prompt de email de §6.5) montado en `mod_results`,
 `default.prod.nix`, `.github/workflows/ci.yml`, **y las tres imágenes
 construidas de verdad y smoke-testeadas**. **Hecho tras la 7:**
 `docs/operations/runbook.md` (§8.8), `docs/operations/first-deploy.md`
-(checklist de lo que vive fuera del repo), `integration/` (62 assertions) y
+(checklist de lo que vive fuera del repo), `integration/` (tests de las
+  tres descripciones del sistema) y
 el **aviso de privacidad** (`app/www/privacy.html`, §9.1, obligatorio antes de
 publicar) enlazado desde Setup, el footer y el modal de email.
 **Pendiente — solo cosas externas:** credenciales SMTP reales + registros
@@ -134,7 +135,7 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   coinciden**: las rutas que `api/plumber.R` registra vs `contract/openapi.yaml`,
   las 3 de `share/R/routes.R` vs `share.openapi.yaml`, y los caminos que
   llaman `app/R/api_client.R` y `share/R/api_client.R` (con `{param}` vs
-  `{id}` normalizados). **57 assertions.**
+  `{id}` normalizados.
   - Deja **escrita** una deriva real: §5.2 y el contrato listan 18 endpoints y
     la API registra 16 — `/trips/sample` y `/zones/geojson` no existen y no
     tienen cliente (§6.1.3 hace que la app lea las zonas del volumen). El test
@@ -188,29 +189,29 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   estática, sin JS, enlazada desde el bloque de email de `Setup`, desde el
   `footer` de `page_navbar` y desde el modal de email de `mod_share`. Es la
   única página de `www/` que no puede leer `shared/brand.yaml`, así que el
-  hex va literal con un comentario. `test-privacy.R` (22 assertions) la
-  obliga a cubrir los seis puntos de §9.1 y a que los tres enlaces existan.
+  hex va literal con un comentario. `test-privacy.R` la obliga a cubrir los seis puntos de §9.1 y a que los tres enlaces existan.
 
 ## Comandos (cwd = `app/` salvo indicación)
-- Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` →
-  **247 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
-  paquete instalado; `helper-load.R` hace `source()` a mano de todo `R/*.R` y
-  `R/modules/*.R` (el orden importa). En el shell **raíz** salen
-  **195 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
-  de flujo se salta con un mensaje que apunta al shell correcto.
+- Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"`
+  (unit + flujo). **El recuento vive en la salida y en CI, no aquí.**
+  NO `test_check()`/`devtools::test()`: no es un paquete instalado;
+  `helper-load.R` hace `source()` a mano de todo `R/*.R` y `R/modules/*.R`
+  (el orden importa). En el shell **raíz** todo pasa salvo el test de flujo:
+  ese shell no lleva `test-tools.nix`, y se salta con un mensaje que apunta al
+  shell correcto.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - Tests del **cliente** API sin servidor: `httr2::with_mocked_responses()`
   (`app/tests/testthat/test-api_client.R`) — no confundir con los de la API.
 - Tests del **servicio share** (cwd = `share/`):
-  `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` → **155 PASS**
-  (0 warnings). Redis tiene que estar en pie; si no, `test-cache.R` y
+  `nix-shell default.dev.nix --run "Rscript tests/testthat.R"`. Redis tiene
+  que estar en pie; si no, `test-cache.R` y
   `test-routes.R` se saltan. No necesita la API: `test-routes.R` arranca un
   stub suyo. Arrancarlo a mano (cwd = raíz):
   `nix-shell share/default.dev.nix --run "Rscript share/plumber.R"` →
   escucha en `SHARE_PORT` (8020) e imprime la URL base y el RSS.
 - Tests de **integración** (cwd = `integration/`, en el shell **raíz**):
-  `nix-shell ../default.nix -A shell --run "Rscript tests/testthat.R"` →
-  **62 PASS**. No necesita ningún servicio: son las tres descripciones del
+  `nix-shell ../default.nix -A shell --run "Rscript tests/testthat.R"`.
+  No necesita ningún servicio: son las tres descripciones del
   sistema (contrato ↔ rutas registradas ↔ caminos de los clientes) mirándose
   una a la otra.
 - Test de flujo (`test-shinytest2.R`, fases 4-6): levanta `dev/mock_api.R` en un
@@ -222,10 +223,9 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   (`AppDriver` se niega a correr si testthat cree que estamos en CRAN; el
   shell y el propio test lo fijan).
 - Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
-  `Rscript tests/testthat.R` — **477 PASS + 1 SKIP** con modelos y datos
-  montados, y **472 PASS + 1 SKIP** sin ellos (verificado: con
-  `TAXI_MODELS_DIR=/nonexistent TAXI_DATA_DIR=/nonexistent`; el único skip
-  es `test-sensitivity.R` "dataset not mounted"). **El CI corre sin modelos**
+  `Rscript tests/testthat.R`. **Pasa con y sin modelos y sin datos**: con
+  `TAXI_MODELS_DIR=/nonexistent TAXI_DATA_DIR=/nonexistent` solo se salta
+  `test-sensitivity.R` ("dataset not mounted"). **El CI corre sin modelos**
   así que no descarga los 534 MB del release. Requiere Postgres y Redis reales
   del compose raíz — levantar `docker compose up -d` antes.
 - Smoke de la API (contenedor): `bash api/dev/smoke.sh` (28 casos con timings;
@@ -559,6 +559,17 @@ mismo aplica a `plumber2`, que la app solo usa en `dev/mock_api.R`.
   **autoritativo**; toda implementación nueva se contrasta aquí y se
   revalida con Spectral (0 errores). La UI (`app/R/api_client.R`) ya habla
   con estos endpoints, así que el transitorio `API_CONTRACT.md` fue retirado.
+- **Dónde va una decisión nueva:** `docs/decisions/README.md` tiene la
+  taxonomía completa (tradeoff → ADR · divergencia con el doc → CHANGELOG ·
+  operativo → `docs/operations/` · superficie HTTP → `contract/` · cómo
+  trabajar aquí → AGENTS). Dos reglas que van con ella: **un ADR se escribe en
+  el mismo commit que la decisión** (§18 del doc planificó 26 y solo existe
+  `REPO_DECISION.md`, precisamente porque esta regla no existía) y la sección
+  `Alternatives` de la plantilla **es obligatoria** — un ADR sin ella guarda
+  una conclusión en vez de un razonamiento.
+- **AGENTS no lleva cifras que caducan:** ni recuentos de tests ni totales de
+  nada que cambie al añadir un test. El recuento vive en la salida de CI. Si
+  una frase necesita un número para ser útil, el número no va aquí.
 - `docs/REPO_DECISION.md` = ADR monorepo vs. repos separados.
 
 ## Repositorio hermano `~/r-projects/NycTaxi` (referencia, solo lectura)

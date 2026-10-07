@@ -5,6 +5,18 @@ The project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/); a repo tag versions every
 service at once.
 
+**This file is also where divergences from the master document are recorded.**
+`04 - Documento Maestro de Decisiones del Proyecto.md` is never edited (it has
+exactly one commit, its creation), so when the code does something the document
+does not describe -- or describes differently -- the difference is written
+here, under `Changed`, naming the section. Annotated, not corrected.
+Precedents: the asynchronous create vs §4.6, `shared/` vs §1.3 and §6.4, and
+the two endpoints §5.2 documents but the API never implemented.
+
+Architectural tradeoffs do not live here: they get an ADR in
+`docs/decisions/`. See `docs/decisions/README.md` for which kind of decision
+goes where.
+
 ## [Unreleased]
 
 ### Added
