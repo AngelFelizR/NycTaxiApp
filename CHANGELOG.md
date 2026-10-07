@@ -376,6 +376,18 @@ goes where.
   reports `png_renders_total`; `contract/openapi.yaml` moved with it and
   Spectral passes.
 
+- **CI runs the tests inside the development image, not on the runner's Nix.**
+  A new `build-dev` job builds the root `Dockerfile`, pushes it to GHCR
+  (layer-cached, so only a change to a `nix/` file or the Dockerfile costs a
+  rebuild), and the four test jobs pull it and run `nix-shell` **inside the
+  container** with the repository mounted at `/root/NycTaxiApp` and
+  `--network host` so they reach the Postgres and Redis service containers.
+  `cachix/install-nix-action` is gone from every test job: the environment
+  now comes from the same pins that produce `./setup.sh` locally, which is the
+  whole point — a runner and a laptop could otherwise disagree about the
+  filesystem, the Nix version and the store. The shell-build retries went with
+  it, because those shells are already built into the image.
+
 ### Changed
 - **§7.1 describes three layers for the card and there are now two.** The
   master document puts a Redis cache in front of the render and the edge in

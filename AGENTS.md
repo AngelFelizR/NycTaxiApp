@@ -306,6 +306,13 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 - Contenedor de desarrollo (cwd = raíz): `./setup.sh` (`-np` para no hacer pull).
   Hoy la imagen solo levanta sshd (host :2222, repo en `/root/NycTaxiApp`): es el
   entorno de desarrollo, **no** las imágenes de despliegue del §1.1.
+  **Los tests de CI corren dentro de esta misma imagen**: el job `build-dev`
+  de `.github/workflows/ci.yml` la construye, la publica en GHCR y los cuatro
+  jobs de test hacen `docker run --network host` con el repo montado en
+  `/root/NycTaxiApp`. En el runner no se instala Nix para los tests — así CI
+  y un portátil no pueden discrepar sobre el filesystem, la versión de Nix ni
+  el store (verificado localmente: dentro de la imagen, `nix-shell` da los
+  mismos recuentos que fuera).
 
 ## Experimentos (fase 3): create asíncrono
 - **Divergencia con §4.6** (anotada en `CHANGELOG.md`): `POST /experiments`

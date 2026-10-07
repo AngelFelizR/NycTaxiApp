@@ -41,7 +41,10 @@ Nothing in flight. The CI history below explains how it got green:
   reported first and unconditionally — that is how `test-shiny`'s data
   problem was separated from its reload problem.
 - The three Nix build flakes (`compilation failed for package 'brotli'`) were
-  fixed by retrying the shell build as its own step, never the tests.
+  fixed by retrying the shell build as its own step, never the tests — and
+  then disappeared for good: **the tests now run inside the development image**
+  (`build-dev` in `ci.yml`), where those shells are already built. Same
+  environment as `./setup.sh`, `--network host` for the service containers.
 
 ---
 

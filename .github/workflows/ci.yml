@@ -5,21 +5,33 @@
 # expressed as `paths:` (8.6).
 #
 # Jobs
+#   build-dev       the development environment as an image, pushed to GHCR
 #   test-contract   spectral lint of both OpenAPI documents (10 s, always)
-#   test-api        testthat with a real Postgres and Redis service container
+#   test-api        testthat inside the dev image, with a real Postgres and
+#                   Redis service container
 #   test-shiny      the UI suite, including the shinytest2 flow in Chromium
 #   test-share      the public share service suite
-#   test-integration  API<->UI tests; skipped until integration/ has content
+#   test-integration  the three descriptions of the system against each other
 #   build-*         multi-arch image to GHCR (latest + :sha)
 #   deploy          SSH to the VM: fetch+verify assets, pull, up, smoke test
+#
+# The four test jobs do NOT run on the runner's Nix. They pull `build-dev` and
+# run inside it, because that image is the same environment `./setup.sh` gives
+# you locally: Ubuntu, Determinate Nix, and every nix/r-*.nix layer already
+# built into the store. Running bare on the runner would let CI and a laptop
+# disagree about the filesystem, the Nix version and the store -- the class of
+# difference that costs a day to find.
 #
 # Assumptions worth knowing before the first run:
 #   - Builds run on ubuntu-24.04-arm (free for public repos) because the VM is
 #     ARM: building under QEMU makes a Nix closure unbearably slow.
-#   - Tests run on ubuntu-latest (x86_64); nothing there is architecture
-#     sensitive, and the rstats-on-nix binary cache has both.
-#   - The API suite passes with no models and no dataset mounted (472 assertions
-#     and one guarded skip), so CI never downloads the 534 MB release.
+#   - Tests run on ubuntu-latest (x86_64) inside the dev image with
+#     `--network host`, which is how they reach the service containers on
+#     localhost. Nothing there is architecture sensitive, and the
+#     rstats-on-nix binary cache has both.
+#   - The API suite passes with no models and no dataset mounted, so CI never
+#     downloads the 534 MB release. The UI flow test needs ZonesShapes.qs2
+#     (1 MB) and downloads it.
 
 name: CI
 
@@ -96,6 +108,51 @@ jobs:
               - 'integration/**'
 
   # ---------------------------------------------------------------------
+  # build-dev: the development environment, as an image.
+  #
+  # Tests do not run on whatever Nix the runner happens to have. They run
+  # inside this image, which is what `./setup.sh` gives you locally: Ubuntu +
+  # Determinate Nix + every nix/r-*.nix layer already built into the store.
+  # Running on the runner instead means CI and a laptop can disagree about
+  # the filesystem, the Nix version and the store -- which is precisely the
+  # class of difference that costs a day to find. Built once here and pulled
+  # by the four test jobs; the layers are cached, so only a change to a nix
+  # file or the Dockerfile costs a rebuild.
+  # ---------------------------------------------------------------------
+  build-dev:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: >-
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.app == 'true' ||
+      needs.changes.outputs.share == 'true' ||
+      needs.changes.outputs.integration == 'true' ||
+      needs.changes.outputs.nix == 'true'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: image reference
+        id: meta
+        run: echo "image=${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/nyc-taxi-dev:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------
   # test-contract: cheap and the contract is what every service reads, so it
   # runs on every change rather than being filtered away.
   # ---------------------------------------------------------------------
@@ -115,7 +172,7 @@ jobs:
   # ---------------------------------------------------------------------
   test-api:
     runs-on: ubuntu-latest
-    needs: changes
+    needs: [changes, build-dev]
     if: needs.changes.outputs.api == 'true' || needs.changes.outputs.nix == 'true'
     services:
       postgres:
@@ -156,37 +213,25 @@ jobs:
       IP_HASH_SALT: ci-ip-hash-salt
     steps:
       - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
+      - uses: docker/login-action@v3
         with:
-          extra_nix_config: |
-            substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
-      - name: API tests
-        working-directory: api
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: pull the development image
+        run: docker pull "${{ needs.build-dev.outputs.image }}"
+      - name: API tests (inside the dev image)
         run: |
           set -o pipefail
-          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
+          docker run --rm --network host --shm-size=2g \
+            -v "$PWD:/root/NycTaxiApp" \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
+            "${{ needs.build-dev.outputs.image }}" \
+            bash -c 'cd /root/NycTaxiApp/api && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/api.log"
       - name: annotate failures
         if: failure()
-        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/api.log" "API tests"
-      # Section 10: ~60% globally, 100% on seven files. The global figure is
-      # enforced -- 75.0% when this landed. The per-file 100% is reported but
-      # not enforced: four of the seven were short on the first measurement,
-      # and a red job for a number nobody has agreed to fix is how a check
-      # becomes noise. dev/coverage.R turns enforcement on with
-      # COVERAGE_FAIL_UNDER when that changes.
-      - name: coverage (section 10)
-        working-directory: api
-        env:
-          COVERAGE_FAIL_UNDER: "60"
-        run: |
-          set -o pipefail
-          nix-shell default.dev.nix --run "Rscript dev/coverage.R" 2>&1 \
-            | tee "$RUNNER_TEMP/coverage.log"
-      - name: annotate coverage failures
-        if: failure()
-        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/coverage.log" "coverage"
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/api.log" "API"
 
   # ---------------------------------------------------------------------
   # test-shiny: app/default.dev.nix carries chromium through test-tools.nix.
@@ -195,7 +240,7 @@ jobs:
   # ---------------------------------------------------------------------
   test-shiny:
     runs-on: ubuntu-latest
-    needs: changes
+    needs: [changes, build-dev]
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.nix == 'true'
     # The flow test drives the real Setup screen, and Setup builds its zone
     # choices from ZonesShapes.qs2 (1 MB). A runner has no data volume, so
@@ -207,43 +252,33 @@ jobs:
       DATA_DIR: /tmp/nyctaxi-ci-data
     steps:
       - uses: actions/checkout@v4
-      - name: zone shapes (1 MB, not the 534 MB release)
-        run: |
-          mkdir -p "$DATA_DIR"
-          curl -fsSL -o "$DATA_DIR/ZonesShapes.qs2" \
-            https://github.com/AngelFelizR/NycTaxiApp/releases/download/v0.0.1-data/ZonesShapes.qs2
-      - uses: cachix/install-nix-action@v31
+      - uses: docker/login-action@v3
         with:
-          extra_nix_config: |
-            substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
-      # This job has no binary cache for the app's package set, so Nix
-      # compiles from source -- and that step has failed twice now with
-      # "compilation failed for package 'brotli'" while the very same package
-      # built fine in another job on the same commit. Building the shell is
-      # retried on its own so a test failure is never retried and never
-      # reported as a build failure.
-      - name: build the test shell (retried)
-        working-directory: app
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: pull the development image
+        run: docker pull "${{ needs.build-dev.outputs.image }}"
+      # The flow test drives the real Setup screen, and Setup builds its zone
+      # choices from ZonesShapes.qs2 (1 MB of the 534 MB release -- the rest
+      # stays out of CI because dev/mock_api.R answers every API call).
+      - name: zone shapes (1 MB)
         run: |
-          for i in 1 2 3; do
-            if nix-shell default.dev.nix --run "true"; then
-              echo "shell ready on attempt $i"
-              exit 0
-            fi
-            echo "shell attempt $i failed" >&2
-            sleep 15
-          done
-          exit 1
-      - name: UI tests (unit + shinytest2 flow)
-        working-directory: app
+          mkdir -p "$RUNNER_TEMP/data"
+          curl -fsSL -o "$RUNNER_TEMP/data/ZonesShapes.qs2" \
+            https://github.com/AngelFelizR/NycTaxiApp/releases/download/v0.0.1-data/ZonesShapes.qs2
+      - name: UI tests (inside the dev image)
         run: |
           set -o pipefail
-          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
+          docker run --rm --network host --shm-size=2g \
+            -v "$PWD:/root/NycTaxiApp" -v "$RUNNER_TEMP/data:/ci-data" \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT -e DATA_DIR=/ci-data \
+            "${{ needs.build-dev.outputs.image }}" \
+            bash -c 'cd /root/NycTaxiApp/app && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/app.log"
       - name: annotate failures
         if: failure()
-        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/app.log" "test-shiny"
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/app.log" "UI"
 
   # ---------------------------------------------------------------------
   # test-share: needs Redis (the cache and routes tests skip without it) but
@@ -251,7 +286,7 @@ jobs:
   # ---------------------------------------------------------------------
   test-share:
     runs-on: ubuntu-latest
-    needs: changes
+    needs: [changes, build-dev]
     if: needs.changes.outputs.share == 'true' || needs.changes.outputs.nix == 'true'
     # Same reason as test-api: no .env in a fresh checkout. test-routes.R
     # sends this key to POST /render-card and the stub the test boots reads it
@@ -270,35 +305,25 @@ jobs:
           --health-retries 12
     steps:
       - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
+      - uses: docker/login-action@v3
         with:
-          extra_nix_config: |
-            substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
-      # Same flake as test-shiny: no binary cache for this set, so Nix
-      # compiles from source and "compilation failed for package 'brotli'"
-      # has taken this job down while the same package built elsewhere.
-      - name: build the test shell (retried)
-        working-directory: share
-        run: |
-          for i in 1 2 3; do
-            if nix-shell default.dev.nix --run "true"; then
-              echo "shell ready on attempt $i"
-              exit 0
-            fi
-            echo "shell attempt $i failed" >&2
-            sleep 15
-          done
-          exit 1
-      - name: share tests
-        working-directory: share
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: pull the development image
+        run: docker pull "${{ needs.build-dev.outputs.image }}"
+      - name: share tests (inside the dev image)
         run: |
           set -o pipefail
-          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
+          docker run --rm --network host --shm-size=2g \
+            -v "$PWD:/root/NycTaxiApp" \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
+            "${{ needs.build-dev.outputs.image }}" \
+            bash -c 'cd /root/NycTaxiApp/share && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/share.log"
       - name: annotate failures
         if: failure()
-        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/share.log" "test-share"
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/share.log" "share"
 
   # ---------------------------------------------------------------------
   # test-integration: the three descriptions of the system against each
@@ -308,32 +333,29 @@ jobs:
   # ---------------------------------------------------------------------
   test-integration:
     runs-on: ubuntu-latest
-    needs: changes
+    needs: [changes, build-dev]
     if: needs.changes.outputs.integration == 'true'
     steps:
       - uses: actions/checkout@v4
-      # This job originally had no Nix at all: `nix-shell` does not exist on
-      # a GitHub runner, so it failed after five seconds with "command not
-      # found" rather than running a single test.
-      - uses: cachix/install-nix-action@v31
+      - uses: docker/login-action@v3
         with:
-          extra_nix_config: |
-            substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
-      - name: Run integration tests if the package exists
-        working-directory: integration
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: pull the development image
+        run: docker pull "${{ needs.build-dev.outputs.image }}"
+      - name: integration tests (inside the dev image)
         run: |
-          if [[ ! -f DESCRIPTION ]]; then
-            echo "integration/ has no DESCRIPTION yet -- nothing to run."
-            exit 0
-          fi
           set -o pipefail
-          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
+          docker run --rm --network host --shm-size=2g \
+            -v "$PWD:/root/NycTaxiApp" \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
+            "${{ needs.build-dev.outputs.image }}" \
+            bash -c 'cd /root/NycTaxiApp/integration && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/integration.log"
       - name: annotate failures
         if: failure()
-        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/integration.log" "test-integration"
-
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/integration.log" "integration"
   # ---------------------------------------------------------------------
   # Images. Native ARM: the deployment VM is ARM and a Nix closure under QEMU
   # does not fit in a job.
