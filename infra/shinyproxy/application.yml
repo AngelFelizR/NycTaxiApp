@@ -20,14 +20,16 @@ proxy:
     internal-networking: true
     container-network: nyctaxi_api_net
 
-  # Unauthenticated traffic is bounded by Nginx's rate limits and by the API's
-  # per-IP limits; these are the backstops for a session storm (1.1).
-  title-environment: false
-  max-instances: 10
+  # Nothing above `specs` beyond what 8.3 specifies: every extra key here is a
+  # ShinyProxy property that has to exist, and `proxy.max-instances` was added
+  # once as a "backstop" -- it expects a Map<String, Integer>, not an integer,
+  # and the JVM refused to start, which took the whole edge down with it (the
+  # capacity page was the only thing that answered). The real bound is
+  # `max-total-instances` on the spec, which 8.3 does specify.
 
   specs:
     - id: nyc-taxi-app
-      container-image: ghcr.io/angelfelizr/nyc-taxi-shiny:latest
+      container-image: ghcr.io/angelfelizr/nyc-taxi-shiny:${NYCTAXI_TAG:latest}
       port: 3838
       # 1.1: 10 instances on a 12 GB VM, ceiling 12 only after the phase-8
       # load test shows >= 2 GB of headroom.

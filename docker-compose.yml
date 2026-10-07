@@ -8,7 +8,10 @@ services:
     image: angelfelizr/nyc-taxi-app:4.5.2
     container_name: nyc-taxi-app
     ports:
-      - "2222:22"
+      # Loopback only: this is root SSH into a container that mounts the whole
+      # repository, and binding 0.0.0.0 would expose it on every network the
+      # host joins.
+      - "127.0.0.1:2222:22"
     # mori mmaps the fitted policy into /dev/shm (119 MB after quosure
     # sanitising); Docker's default 64 MB would fail with ENOSPC.
     shm_size: "2g"

@@ -8,13 +8,24 @@ constants_state <- new.env(parent = emptyenv())
 # files read-only at /srv/nyctaxi/data (4.5). The dev container mounts them at
 # /data, and the .env value is a *host* path that does not exist inside it, so
 # the first candidate that actually exists wins.
-app_data_dir <- function() {
-  cands <- c(
+# Where the read-only data volume can be (6.1.3: everything static is
+# preloaded from it, so the app never waits on the network). Exposed as its own
+# function because the list *is* the contract between this code and whoever
+# mounts the volume -- §8.3 mounts it at /app/data, §6.1.3 names
+# /srv/nyctaxi/data, and the dev compose mounts it at /data. Missing one of
+# them means an empty map in production with nothing in the logs to say why.
+app_data_candidates <- function() {
+  c(
     Sys.getenv("DATA_DIR", ""),
     "/data",
+    "/app/data",
     file.path(path.expand("~"), "nyctaxi", "data"),
     "/srv/nyctaxi/data"
   )
+}
+
+app_data_dir <- function() {
+  cands <- app_data_candidates()
   cands <- cands[nzchar(cands)]
   hit <- cands[file.exists(cands)]
   if (length(hit) > 0) hit[1] else cands[1]

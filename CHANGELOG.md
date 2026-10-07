@@ -202,6 +202,24 @@ goes where.
 - Redundant `.gitkeep` files removed from every directory that has content;
   only `docs/investigation-phases/` keeps one.
 
+- **`infra/scripts/smoke-stack.sh` + `docker-compose.smoke.yml`: the production
+  stack now actually runs on a workstation.** Six assertions the parsers could
+  not make: §10(a) `/api/health` -> 404 through the edge, §10(c) only 80 and
+  443 published, `GET /` -> 200 through Nginx and ShinyProxy,
+  `GET /share/<unknown>` -> 404 `application/json` (edge -> share -> API),
+  §10(e) `share` holds no `POSTGRES_*`, and §8.2's `error_page 503` serving
+  `capacity-full.html`. The overlay only re-points `/models` and `/data` at the
+  directories `.env` already has and swaps `/etc/letsencrypt` for a
+  self-signed certificate, so nothing outside the repository is touched; the
+  production file keeps its `/srv/nyctaxi/...` paths for the VM. Image tags
+  became `${NYCTAXI_TAG:-latest}` so the same file runs against the images CI
+  pushes and against the ones built locally.
+- `app_data_candidates()`: `app_data_dir()` now also looks in `/app/data`,
+  which is where §8.3 mounts the volume for the Shiny containers. It was not a
+  candidate, so in production every Shiny instance would have looked for
+  `ZonesShapes.qs2` in four wrong places and drawn an empty map with nothing
+  in the logs to say why.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -431,6 +449,29 @@ goes where.
   roughly 2 GB per image and make GHCR pushes much faster. Recorded as a
   follow-up rather than changed here: `system.nix` is the layer every image
   and every shell shares.
+
+- **Six bugs the smoke test found in the phase-7 configuration, all committed
+  and all invisible to `nginx -t`, `compose config` and `actionlint`:**
+  1. `share` had `env_file: .env`, which hands it `POSTGRES_*` -- section 1.0
+     says share never receives database credentials, and 5.10 is built on it
+     having none. It now gets an explicit `environment:` list. Caught by the
+     §10(e) check.
+  2. The API healthcheck sent no `X-Internal-Key`, so it got 403 forever;
+     `share` waits on `condition: service_healthy` and Nginx waits on `share`,
+     so the whole edge would never have come up. The probe now reads the key
+     from the container's own environment -- it never appears in
+     `docker inspect`.
+  3. `proxy.max-instances: 10` in `application.yml` made the JVM refuse to
+     start: Spring expects `Map<String, Integer>`, not an integer. ShinyProxy
+     crashed in a loop and the only thing that answered was the 503 page.
+     The real bound is `max-total-instances` on the spec, which §8.3 does
+     specify; the extra key was mine and is gone.
+  4. `shm_size: 2g` against `mem_limit: 1.5g` -- a tmpfs larger than the
+     container's own memory. Now 256 MB, twice what `mori`'s 119 MB needs.
+  5. The dev container published `2222:22` on `0.0.0.0`, i.e. root SSH on every
+     network the host joins. Now `127.0.0.1:2222:22`.
+  6. `app_data_dir()` did not know about the mount target §8.3 uses (see
+     Added).
 
 ### Fixed
 

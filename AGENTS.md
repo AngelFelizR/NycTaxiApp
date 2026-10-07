@@ -48,7 +48,8 @@ LinkedIn + el segundo prompt de email de §6.5) montado en `mod_results`,
 construidas de verdad y smoke-testeadas**. **Hecho tras la 7:**
 `docs/operations/runbook.md` (§8.8), `docs/operations/first-deploy.md`
 (checklist de lo que vive fuera del repo), `integration/` (tests de las
-  tres descripciones del sistema) y
+  tres descripciones del sistema), **el stack completo verificado de punta a
+punta con `infra/scripts/smoke-stack.sh`** y
 el **aviso de privacidad** (`app/www/privacy.html`, §9.1, obligatorio antes de
 publicar) enlazado desde Setup, el footer y el modal de email.
 **Pendiente — solo cosas externas:** credenciales SMTP reales + registros
@@ -209,6 +210,9 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   stub suyo. Arrancarlo a mano (cwd = raíz):
   `nix-shell share/default.dev.nix --run "Rscript share/plumber.R"` →
   escucha en `SHARE_PORT` (8020) e imprime la URL base y el RSS.
+- **Smoke del stack** (raíz, necesita Docker y los modelos en `MODELS_DIR`):
+  `./infra/scripts/smoke-stack.sh` → sale con 0. `SMOKE_KEEP=1` lo deja
+  corriendo; es la única comprobación de §10 que existe hoy.
 - Tests de **integración** (cwd = `integration/`, en el shell **raíz**):
   `nix-shell ../default.nix -A shell --run "Rscript tests/testthat.R"`.
   No necesita ningún servicio: son las tres descripciones del
@@ -506,6 +510,31 @@ toolchain que `R` arrastra. §1.1 limita la **RAM** (256 MB / 1,5 GB), no el
 tamaño de imagen, así que esto no incumple nada — pero separar un
 `nix/system-runtime.nix` (sin `nix`, sin toolchain) para las imágenes bajaría
 cada una ~2 GB y haría los push de GHCR bastante más rápidos.
+
+### El smoke del stack
+
+**`./infra/scripts/smoke-stack.sh`** levanta el stack de producción en el
+portátil (`docker-compose.prod.yml` + `docker-compose.smoke.yml`) y comprueba
+lo que los parsers no pueden: §10(a) `/api/health`→404 por el borde, §10(c)
+solo 80/443 publicados, `GET /`→200 (Nginx→ShinyProxy),
+`GET /share/<desconocido>`→404 `application/json` (borde→share→API),
+§10(e) `share` sin `POSTGRES_*`, y §8.2 `error_page 503`→`capacity-full.html`.
+Sale con 0 o con 1.
+
+- **El overlay no toca nada fuera del repo:** remapea `/models` y `/data` a
+  los directorios de `.env` y cambia `/etc/letsencrypt` por un certificado
+  autofirmado en `/tmp`. El compose de producción conserva
+  `/srv/nyctaxi/...` para la VM. `SMOKE_KEEP=1` deja el stack levantado.
+- **`NYCTAXI_TAG`** (`latest` por defecto, `test` en el smoke) permite que el
+  mismo compose sirva para las imágenes de CI y para las locales; lo interpola
+  también `application.yml` para la imagen de Shiny.
+- **No abre una sesión Shiny**, así que no prueba el WebSocket de una sesión
+  real ni el volumen de datos dentro del contenedor Shiny — eso es fase 8.
+  Sí afirma que Nginx tiene `proxy_set_header Upgrade` configurado.
+- Seis bugs de la fase 7 los encontró este script (ver `CHANGELOG`, sección
+  Fixed): `env_file` en `share`, healthcheck sin clave, `proxy.max-instances`
+  que rompía el arranque de ShinyProxy, `shm_size` mayor que `mem_limit`,
+  SSH dev en `0.0.0.0` y `app_data_dir()` sin conocer `/app/data`.
 
 ### Bloqueos del primer despliegue (fuera de este repo)
 

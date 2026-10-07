@@ -98,6 +98,18 @@ test_that("app_data_dir falls back to a path that exists", {
                 dir.exists("/data"))
 })
 
+test_that("app_data_dir knows every place the data volume is mounted", {
+  # §8.3 mounts it at /app/data and §6.1.3 names /srv/nyctaxi/data; the dev
+  # compose uses /data. All three have to be candidates or the map comes up
+  # empty in that layout and nothing says why.
+  cands <- app_data_candidates()
+  expect_true("/app/data" %in% cands, label = "the §8.3 mount target")
+  expect_true("/data" %in% cands, label = "the dev compose mount")
+  expect_true("/srv/nyctaxi/data" %in% cands, label = "the §6.1.3 production path")
+  # DATA_DIR wins when the environment provides one.
+  expect_identical(app_data_candidates()[1], Sys.getenv("DATA_DIR", ""))
+})
+
 test_that("ordinal renders the percentile the way 4.6 spells it", {
   expect_equal(ordinal(1), "1st")
   expect_equal(ordinal(2), "2nd")

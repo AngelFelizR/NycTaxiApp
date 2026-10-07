@@ -62,7 +62,9 @@ services:
       # containers. ShinyProxy never calls the API itself -- 1.0's "no recibe
       # API_INTERNAL_KEY" means it is not an API client; without this the
       # injected value would be empty and every request would 403.
-      API_INTERNAL_KEY: "${API_INTERNAL_KEY:?Set API_INTERNAL_KEY in .env}" 
+      API_INTERNAL_KEY: "${API_INTERNAL_KEY:?Set API_INTERNAL_KEY in .env}"
+      # application.yml interpolates it into the image each session starts.
+      NYCTAXI_TAG: "${NYCTAXI_TAG:-latest}" 
     networks:
       - nyctaxi_edge_net
       - nyctaxi_api_net
@@ -71,7 +73,9 @@ services:
     cpus: 0.5
 
   api:
-    image: ghcr.io/angelfelizr/nyc-taxi-api:latest
+    # NYCTAXI_TAG defaults to latest (what CI pushes); the smoke test sets it
+    # to test to use the images built locally.
+    image: ghcr.io/angelfelizr/nyc-taxi-api:${NYCTAXI_TAG:-latest}
     container_name: nyctaxi-api
     restart: unless-stopped
     # NO ports: the API exists only on the private networks (1.0, 9.3).
@@ -90,9 +94,12 @@ services:
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
       VECLIB_MAXIMUM_THREADS: "1"
-    # mori mmaps the fitted policy into /dev/shm (119 MB); Docker's default
-    # 64 MB fails with ENOSPC -- the same reason the dev compose sets it.
-    shm_size: "2g"
+    # mori mmaps the fitted policy into /dev/shm (119 MB after quosure
+    # sanitising); Docker's default 64 MB fails with ENOSPC. 256 MB is twice
+    # what it needs. It used to be 2g -- larger than this container's own
+    # mem_limit below, which is arithmetic that cannot hold: /dev/shm is a
+    # tmpfs and counts as container memory.
+    shm_size: "256m"
     volumes:
       - /srv/nyctaxi/models:/models:ro
       - /srv/nyctaxi/data:/data:ro
@@ -102,7 +109,17 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "Rscript -e \"httr2::req_perform(httr2::req_timeout(httr2::request('http://127.0.0.1:8000/health'), 3))\""]
+      # /health sits behind the internal-auth router like every other endpoint
+      # (5.4), so the probe has to send X-Internal-Key or it gets 403 forever
+      # and `share`, which waits on `condition: service_healthy`, never starts.
+      # The key is read from the container's own env, never spelled out here --
+      # `docker inspect` must not show it.
+      test:
+        - CMD-SHELL
+        - >-
+          Rscript -e 'r <- httr2::req_timeout(httr2::request("http://127.0.0.1:8000/health"), 5);
+          r <- httr2::req_headers(r, `X-Internal-Key` = Sys.getenv("API_INTERNAL_KEY"));
+          quit(status = if (httr2::resp_status(httr2::req_perform(r)) == 200L) 0 else 1)' 
       interval: 30s
       timeout: 10s
       retries: 3
@@ -115,21 +132,25 @@ services:
     cpus: 1.0
 
   share:
-    image: ghcr.io/angelfelizr/nyc-taxi-share:latest
+    image: ghcr.io/angelfelizr/nyc-taxi-share:${NYCTAXI_TAG:-latest}
     container_name: nyctaxi-share
     restart: unless-stopped
     # NO ports: Nginx is the only way in (1.0).
     expose:
       - "8001"
-    env_file:
-      - .env
+    # NO env_file: .env carries POSTGRES_* and section 1.0 says share must
+    # never receive them -- it has no database credentials by design (5.10).
+    # Compose still resolves ${...} below from the project .env, so the
+    # credentials never enter the container, only the values it needs.
     environment:
       SHARE_HOST: "0.0.0.0"
       SHARE_PORT: "8001"
       # Over the private network, never the public hostname.
       TAXI_API_URL: "http://api:8000"
       REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
       SHARE_BASE_URL: "https://nyctaxiapp.angelfeliz.com"
+      API_INTERNAL_KEY: "${API_INTERNAL_KEY:?Set API_INTERNAL_KEY in .env}"
     depends_on:
       api:
         condition: service_healthy
