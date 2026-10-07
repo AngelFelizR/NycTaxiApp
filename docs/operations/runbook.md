@@ -314,8 +314,8 @@ Docker network (it is `http://127.0.0.1:8000` when you run the service by hand
 outside compose), and `REDIS_HOST` must be `redis`.
 
 **Fix:** restart whichever hop is broken. If only Redis is down, the card
-still renders — `share/` fails open and simply does not cache or count the
-view (§5.10); a missing cache is not an incident.
+still renders — `share/` fails open and simply does not count the view or the
+render tally (§5.10, ADR-0010); a missing counter is not an incident.
 
 **Prevention:** `depends_on` with `condition: service_healthy` in
 `docker-compose.prod.yml`, and the fact that `share/` never holds Postgres

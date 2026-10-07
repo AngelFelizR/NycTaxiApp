@@ -365,7 +365,27 @@ goes where.
   a dead child leaves a frozen number and the row is still retired.
   `contract/openapi.yaml` is unchanged, by design.
 
+- **The card has one cache, and it is the edge** (ADR-0010):
+  `share/R/routes.R` renders on every request that reaches the service, and
+  `png_cache_get`/`png_cache_put`/`png_cache_del` leave `share/R/cache.R`.
+  `Cache-Control: public, max-age=86400, s-maxage=604800` is untouched — it
+  is the cache now. What made this worth doing: **nothing ever incremented
+  `png:cache:hits` or `png:cache:misses`**, so `/metrics` has reported zero
+  for both while a 24 h Redis TTL hid the renders they were supposed to
+  count. In their place `share/` increments a global `png:renders` and the API
+  reports `png_renders_total`; `contract/openapi.yaml` moved with it and
+  Spectral passes.
+
 ### Changed
+- **§7.1 describes three layers for the card and there are now two.** The
+  master document puts a Redis cache in front of the render and the edge in
+  front of that; the Redis layer is gone and only the edge remains. Annotated
+  here — §7.1's actual promises (server-side render, cacheable at the edge)
+  are unchanged, and so is `Cache-Control`.
+- **§11's `/metrics` loses `png_cache_hits` and `png_cache_misses`** and gains
+  `png_renders_total`. The two it lost could never have moved: nothing wrote
+  them.
+
 - **AGENTS' "Peso de las images" section was wrong and is now measured.** It
   said the ~2 GB of toolchain "vienen de `nix/system.nix`" and that splitting
   that expression would recover it. The expression declares ten packages and

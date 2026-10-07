@@ -185,7 +185,13 @@ Specification given directly; no service redesign, no heartbeat.
 - **Do not touch** `contract/openapi.yaml` and do not change the fork.
 - `AGENTS.md` + `CHANGELOG.md` updated.
 
-## Plan D — remove the PNG byte cache from Redis
+**Landed** in `b2421fc` with ADR-0009: `api/tests/testthat/test-setup-progress.R`
+pins all five properties (migration and bounds, the status guard, that `/state`
+answers a published 42 where the row counts would answer 99, that the answer is
+identical with and without the local job table, and that age rather than
+progress decides the timeout). All four suites green; the contract untouched.
+
+## Plan D — remove the PNG byte cache from Redis — **done** (ADR-0010)
 
 - `share/R/cache.R` keeps `sensitivity`/rate-limit/`share:views`; drops
   `png_cache_get`/`png_cache_put`.
@@ -196,6 +202,12 @@ Specification given directly; no service redesign, no heartbeat.
 - Tests updated; `share:views`, bots and `/health` untouched.
 - **ADR superseding part of ADR-009**, plus `CHANGELOG.md` (§7.1 goes from
   three layers to two; §11 loses two metrics), `AGENTS.md` and the runbook.
+
+**Landed** with ADR-0010. Worth knowing: `png:cache:hits` and
+`png:cache:misses` were **never incremented by anything** — they read zero from
+the day they were added, which is what made them worth removing rather than
+repairing. The runbook's "`share/` fails open" entry now says it does not
+count the view or the render tally. All four suites green, Spectral 0 errors.
 
 ---
 

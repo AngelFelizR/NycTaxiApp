@@ -49,8 +49,8 @@ test_that("every route behaves once booted against a stub API", {
     skip("the service or its stub did not come up")
   }
 
-  views_del(TOKEN); png_cache_del(TOKEN)
-  on.exit({ views_del(TOKEN); png_cache_del(TOKEN) }, add = TRUE)
+  views_del(TOKEN)
+  on.exit(views_del(TOKEN), add = TRUE)
   {
 
     # ---- health: no upstream needed at all -------------------------------

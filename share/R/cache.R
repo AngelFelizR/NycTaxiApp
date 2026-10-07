@@ -1,6 +1,9 @@
-# Redis for the share service (sections 5.10 and 7.1): the rendered PNG bytes
-# (24h TTL, so a spike of LinkedIn/X crawlers never re-renders the card) and
-# the share:views:{token} counters. Nothing is ever written to disk.
+# Redis for the share service (sections 5.10 and 7.4): the share:views:{token}
+# counters and the render tally behind /metrics. Nothing is ever written to
+# disk. The rendered PNG bytes are deliberately NOT here any more (ADR-0010):
+# the edge cache is the layer that keeps crawlers from re-rendering, and a
+# second cache in front of it only hid renders from the only counter that
+# reported them.
 #
 # Availability is best effort: if Redis is down the card is rendered fresh and
 # the view is simply not counted (fail open). The share page must not go down
@@ -22,43 +25,18 @@ redis_con <- function() {
 
 redis_forget <- function() cache_state$con <- NULL
 
-# ---- PNG cache (7.1: bytes, TTL 24h, never on disk) -------------------------
+# ---- render tally (metrics, section 11) -----------------------------------
 
-# Redis hands bulk strings back as character; for the card that means the PNG
-# bytes have to be re-materialised exactly as they were stored.
-as_raw <- function(x) {
-  if (is.raw(x)) return(x)
-  if (is.character(x) && length(x) == 1L) return(charToRaw(x))
-  NULL
-}
-
-png_cache_get <- function(token) {
+# One global counter, incremented once per card actually rendered. It replaces
+# the two cache counters, which nothing ever incremented (ADR-0010) -- they
+# read as zero forever while the cache in front of them hid the renders.
+renders_incr <- function() {
   con <- redis_con()
   if (is.null(con)) return(NULL)
-  tryCatch(as_raw(con$GET(paste0("share:png:", token))), error = function(e) {
+  tryCatch(as.integer(con$INCR("png:renders")), error = function(e) {
     redis_forget()
     NULL
   })
-}
-
-png_cache_put <- function(token, bytes, ttl = 86400L) {
-  con <- redis_con()
-  if (is.null(con)) return(FALSE)
-  tryCatch({
-    con$SET(paste0("share:png:", token), bytes)
-    con$EXPIRE(paste0("share:png:", token), as.integer(ttl))
-    TRUE
-  }, error = function(e) {
-    redis_forget()
-    FALSE
-  })
-}
-
-png_cache_del <- function(token) {
-  con <- redis_con()
-  if (is.null(con)) return(FALSE)
-  tryCatch({ con$DEL(paste0("share:png:", token)); TRUE },
-           error = function(e) { redis_forget(); FALSE })
 }
 
 # ---- view counter (7.4) ----------------------------------------------------

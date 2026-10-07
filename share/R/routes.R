@@ -107,6 +107,9 @@ render_card_handler <- function(request, response, body) {
                           message = "Could not render the card.")
     return(plumber2::Break)
   }
+  # A render is a render, whoever asked for it: the tally counts every card
+  # actually painted, including the one pushed for an email (ADR-0010).
+  renders_incr()
 
   respond_png(response)
   # Not a public resource: there is no URL to cache, only this exchange.
@@ -116,23 +119,18 @@ render_card_handler <- function(request, response, body) {
 }
 
 # ---- GET /share/{token}.png ------------------------------------------------
-# 7.1: cached in Redis for 24h, never on disk, served with the long
-# Cache-Control so Cloudflare and the crawlers never re-render it.
+# 7.1: rendered every time and served with the long Cache-Control, so the edge
+# is the cache (ADR-0010). There used to be a second one here, in Redis; it
+# only made the render counters -- which nothing incremented anyway -- report
+# zero while the work was still being avoided somewhere else.
 png_handler <- function(request, response, token) {
   if (!valid_token(token)) return(abort_with(response, 404L))
-  cached <- png_cache_get(token)
-  if (!is.null(cached)) {
-    respond_png(response)
-    response$set_header("Cache-Control", "public, max-age=86400, s-maxage=604800")
-    response$body <- cached
-    return(plumber2::Break)
-  }
   got <- fetch_data(request, token)
   if (got$status != 200L || is.null(got$data)) {
     return(abort_with(response, if (got$status %in% c(404L, 403L)) 404L else 503L))
   }
   bytes <- share_png(got$data)
-  png_cache_put(token, bytes)
+  renders_incr()
   respond_png(response)
   response$set_header("Cache-Control", "public, max-age=86400, s-maxage=604800")
   response$body <- bytes

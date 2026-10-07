@@ -331,7 +331,7 @@ test_that("GET /metrics reports every contract counter", {
     expect_named(response$body, c(
       "experiments_started", "experiments_finished", "experiments_abandoned",
       "shares_generated", "share_views_total", "sensitivity_cache_hits",
-      "sensitivity_cache_misses", "png_cache_hits", "png_cache_misses",
+      "sensitivity_cache_misses", "png_renders_total",
       "waitlist_signups", "capacity_503_total"
     ))
     expect_true(all(vapply(response$body, is.numeric, logical(1))))

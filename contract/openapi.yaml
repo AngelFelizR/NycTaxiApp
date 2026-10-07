@@ -1031,8 +1031,7 @@ paths:
                 share_views_total: 2573
                 sensitivity_cache_hits: 8821
                 sensitivity_cache_misses: 654
-                png_cache_hits: 3120
-                png_cache_misses: 402
+                png_renders_total: 3522
                 waitlist_signups: 97
                 capacity_503_total: 12
         "403":
@@ -1871,7 +1870,7 @@ components:
 
     MetricsResponse:
       type: object
-      required: [experiments_started, experiments_finished, experiments_abandoned, shares_generated, share_views_total, sensitivity_cache_hits, sensitivity_cache_misses, png_cache_hits, png_cache_misses, waitlist_signups, capacity_503_total]
+      required: [experiments_started, experiments_finished, experiments_abandoned, shares_generated, share_views_total, sensitivity_cache_hits, sensitivity_cache_misses, png_renders_total, waitlist_signups, capacity_503_total]
       properties:
         experiments_started:
           type: integer
@@ -1887,10 +1886,9 @@ components:
           type: integer
         sensitivity_cache_misses:
           type: integer
-        png_cache_hits:
+        png_renders_total:
           type: integer
-        png_cache_misses:
-          type: integer
+          description: Cards actually rendered (public PNG and the push for an email). Replaced two cache counters that nothing ever incremented.
         waitlist_signups:
           type: integer
         capacity_503_total:

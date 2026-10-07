@@ -46,7 +46,7 @@ no duplicate file. This table exists so nobody writes one.
 | ADR-006 | `mori` for shared memory | 4.1 | master doc §4.1 |
 | ADR-007 | Zero `renderUI` for structure | 6.1 | master doc §6.1 |
 | ADR-008 | Bidirectional Leaflet | 6.5 | master doc §6.5 |
-| ADR-009 | PNG server-side with Redis/Cloudflare cache | 7.1 | master doc §7.1 |
+| ADR-009 | PNG server-side with Redis/Cloudflare cache | 7.1 | master doc §7.1 — **partially superseded by [`0010`](0010-one-cache-layer-for-the-card.md)**: the Redis layer is gone, the edge header remains |
 | ADR-010 | Single `share_token` with query params | 2.4 | master doc §2.4 |
 | ADR-011 | No signature on `share_token` | 2.4 | master doc §2.4 |
 | ADR-012 | Cloudflare in front | 8.4 | master doc §8.4 |
@@ -83,6 +83,7 @@ Decisions the master document does not make, or makes differently.
 | [`0007-both-services-are-packages.md`](0007-both-services-are-packages.md) | §10, §1.1, §6.2 (differs) | `api/` and `app/` are R packages: flat `R/`, installed in production, `load_all()` in development |
 | [`0008-runtime-system-layer.md`](0008-runtime-system-layer.md) | §1.1, §8.6 | Images build a system layer without `nix` (~70 MB per image); the other 1.34 GB lives inside R and is left alone |
 | [`0009-setup-progress-on-the-row.md`](0009-setup-progress-on-the-row.md) | §4.6 | The `setup` percentage is a column published by the child, not a count of trajectory rows; the timeout stays on `created_at` |
+| [`0010-one-cache-layer-for-the-card.md`](0010-one-cache-layer-for-the-card.md) | §7.1, §11 (differs) | The card has one cache, the edge; `/metrics` reports renders instead of two counters nothing incremented |
 ## Execution still pending
 
 Not decisions — work. Everything external to this repository is in
