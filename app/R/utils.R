@@ -51,24 +51,45 @@ ensure_daemons <- function(n = 4) {
   invisible(TRUE)
 }
 
+# A rejected promise reaches task_result() as `shiny.silent.error` with an
+# EMPTY message -- Shiny discards the text on the way across -- so a failing
+# call used to vanish: no notification, no log, nothing. The visitor clicked
+# and nothing happened. Caught by test-shinytest2.R ("a 429 from the API is
+# shown with the API's own message") after section 10 asked for it.
+#
+# So the call never rejects: it resolves to `list(failure = <message>)` and
+# the reader decides. Daemons that will not start are handled the same way,
+# through promise_resolve, because that path cannot build a mirai either.
 api_async <- function(fn, ctx, ...) {
-  ensure_daemons()
-  mirai::mirai(
-    do.call(fn, c(list(ctx = ctx), args)),
-    fn = fn, ctx = ctx, args = list(...)
-  )
+  tryCatch({
+    ensure_daemons()
+    mirai::mirai(
+      tryCatch(list(value = do.call(fn, c(list(ctx = ctx), args))),
+               error = function(e) list(failure = conditionMessage(e))),
+      fn = fn, ctx = ctx, args = list(...)
+    )
+  }, error = function(e) {
+    promises::promise_resolve(list(
+      failure = paste("could not start the API workers:", conditionMessage(e))
+    ))
+  })
 }
 
 # Read an ExtendedTask result inside an observer/reactive:
-#  - still pending / never invoked -> re-raise Shiny's silent error (waits quietly)
-#  - failed (HTTP error, timeout, daemon error) -> notify the user, return NULL
+#  - still pending / running -> re-raise the silent error (waits quietly)
+#  - failed -> notify the user with the API's own message, return NULL
+#  - ok -> the value the api_* function returned, unwrapped
+# Callers all do `res <- task_result(t); if (!is.null(res)) ...`, so NULL on
+# failure keeps every one of them correct without touching them.
 task_result <- function(task) {
-  tryCatch(task$result(), error = function(e) {
-    if (inherits(e, "shiny.silent.error")) stop(e)
-    showNotification(paste(err_api_prefix, conditionMessage(e)),
+  out <- tryCatch(task$result(), error = function(e) stop(e))
+  if (!is.list(out)) return(out)
+  if (!is.null(out$failure)) {
+    showNotification(paste(err_api_prefix, out$failure),
                      type = "error", duration = 8)
-    NULL
-  })
+    return(NULL)
+  }
+  out$value
 }
 
 # POST /validate-trip-start answer -> the three hints the form shows. The API

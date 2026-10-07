@@ -344,6 +344,16 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
   implementa. `R/modules/mod_results.R` es la pantalla final (6 KPIs,
   percentil, insignia de semilla); la fase 6 pendiente es **el envío real por
   SMTP** — los botones y el `share/` ya existen y se documentan más abajo.
+- **Un fallo NUNCA rechaza la promesa.** `api_async()` resuelve con
+  `list(value=...)` o `list(failure=<mensaje de la API>)`, y `task_result()`
+  convierte el segundo en notificación + `NULL`. No lo cambies: Shiny convierte
+  una promesa rechazada en `shiny.silent.error` **con el mensaje vacío**, así
+  que `task_result()` no podría distinguirlo del "todavía no se ha invocado"
+  y re-lanzaría en silencio — que es exactamente lo que pasaba hasta que el
+  test de §10 lo pilló. Los 7 callers hacen `res <- task_result(t);
+  if (!is.null(res)) ...`, así que `NULL` en fallo los deja intactos.
+  `promises::promise_resolve` cubre el caso de workers que no arrancan (ahí no
+  cabe un mirai).
 - **La jornada solo termina en `POST /finish`** (§4.6: `outcome` y
   `user_percentile` se calculan "siempre en el servidor"). `mod_trips` lo
   llama cuando `shift_over()` ve `pending_hours <= 0`; nada más cambia el
@@ -515,10 +525,12 @@ cada una ~2 GB y haría los push de GHCR bastante más rápidos.
 
 **`./infra/scripts/smoke-stack.sh`** levanta el stack de producción en el
 portátil (`docker-compose.prod.yml` + `docker-compose.smoke.yml`) y comprueba
-lo que los parsers no pueden: §10(a) `/api/health`→404 por el borde, §10(c)
-solo 80/443 publicados, `GET /`→200 (Nginx→ShinyProxy),
-`GET /share/<desconocido>`→404 `application/json` (borde→share→API),
-§10(e) `share` sin `POSTGRES_*`, y §8.2 `error_page 503`→`capacity-full.html`.
+lo que los parsers no pueden: §10(a) `/api/health`→404 por el borde, §10(b)
+solo 80/443 publicados, §10(c) un contenedor en `nyctaxi_api_net` ve
+`api:8000` pero **no resuelve** `postgres`/`redis`, §10(d) `GET /health` sin
+`X-Internal-Key`→403 contra el router real, §10(e) `share` sin `POSTGRES_*`,
+`GET /`→200 (Nginx→ShinyProxy), `GET /share/<desconocido>`→404
+`application/json` (borde→share→API) y §8.2 `error_page 503`→`capacity-full.html`.
 Sale con 0 o con 1.
 
 - **El overlay no toca nada fuera del repo:** remapea `/models` y `/data` a

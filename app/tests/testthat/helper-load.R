@@ -27,3 +27,9 @@ for (rel in c(
 
 # The tests run inside the dev container, where .env lives one level up.
 load_env_file(file.path(app_dir, "..", ".env"))
+
+# The smallest thing that satisfies client_ip(): it only reads
+# session$request.<header>. Shared by every test that builds an estado.
+fake_session <- function(headers = list()) {
+  structure(list(request = headers), class = "MockShinySession2")
+}

@@ -139,7 +139,74 @@ test_that("validating a non-optimal start shows both hints", {
   expect_true(visible("#setup-start_day"))
 })
 
-# --- 3. the advanced seed option (3.3) --------------------------------------
+# --- 3. an error answer reaches the visitor (section 10) -------------------
+# Section 10 asks the UI to surface 429, 403, 404, 409 and 503. All five
+# travel the same road -- task_result() turns a failed ExtendedTask into a
+# notification -- so one real status, end to end through the mirai daemon and
+# httr2, is what proves the path. The mock answers 429 on demand through
+# POST /__fail rather than a second AppDriver, so the mock, the driver and the
+# click are exactly the ones the successful validation just used.
+
+set_mock_failure <- function(payload) {
+  httr2::request(paste0(mock_url, "/__fail")) |>
+    httr2::req_headers(`X-Internal-Key` = mock_key) |>
+    httr2::req_body_json(payload, auto_unbox = TRUE) |>
+    httr2::req_error(is_error = ~ FALSE) |>
+    httr2::req_perform()
+  invisible(NULL)
+}
+
+last_path <- function() {
+  httr2::request(paste0(mock_url, "/__last")) |>
+    httr2::req_headers(`X-Internal-Key` = mock_key) |>
+    httr2::req_timeout(5) |>
+    httr2::req_perform() |>
+    httr2::resp_body_json() |>
+    (function(x) x$path %||% "")()
+}
+
+test_that("a 429 from the API is shown with the API's own message", {
+  # Whatever happens, the mock must not stay broken for the tests below.
+  on.exit(set_mock_failure(list()), add = TRUE)
+  set_mock_failure(list(
+    status = 429,
+    message = "You've reached the limit of 3 experiments per day."
+  ))
+
+  # The mock counts how often the injected status was actually served, so a
+  # dead click and a swallowed error are told apart before looking at the UI.
+  inject_hits <- function() {
+    httr2::request(paste0(mock_url, "/__last")) |>
+      httr2::req_headers(`X-Internal-Key` = mock_key) |>
+      httr2::req_timeout(5) |>
+      httr2::req_perform() |>
+      httr2::resp_body_json() |>
+      (function(x) as.integer(x$fail_hits %||% 0L))()
+  }
+  before_hits <- inject_hits()
+
+  app$click(selector = "#setup-validate")
+  app$wait_for_js("!!document.querySelector('.shiny-notification-error')",
+                  timeout = 25000)
+
+  expect_equal(inject_hits(), before_hits + 1L,
+               label = "the 429 really was served once")
+  expect_equal(last_path(), "/validate-trip-start")
+
+  txt <- app$get_js(paste0(
+    "Array.prototype.map.call(document.querySelectorAll('.shiny-notification'),",
+    " function(e){return e.textContent;}).join(' | ')"))
+  expect_match(txt, "API error:", fixed = TRUE, label = "err_api_prefix")
+  expect_match(txt, "limit of 3 experiments per day", fixed = TRUE,
+               label = "the message the API actually sent")
+
+  # A failed call adds nothing: the previous validation result is still what
+  # the visitor sees, and it was not overwritten by an error.
+  expect_match(app$get_text("#setup-company_hint"), "Use Uber for better results")
+  set_mock_failure(list())
+})
+
+# --- 4. the advanced seed option (3.3) --------------------------------------
 
 test_that("the advanced seed option accepts a custom seed", {
   # set_inputs() reaches the reactive for the always-visible fields but not for
@@ -156,7 +223,7 @@ test_that("the advanced seed option accepts a custom seed", {
   # the only place it shows up (3.3).
 })
 
-# --- 4. Start The Day opens the resume-code modal --------------------------
+# --- 5. Start The Day opens the resume-code modal --------------------------
 
 test_that("Start The Day shows the one-time resume code in a modal", {
   app$click(selector = "#setup-start_day")
@@ -167,7 +234,7 @@ test_that("Start The Day shows the one-time resume code in a modal", {
   expect_match(app$get_js("window.location.search"), "\\?exp=")
 })
 
-# --- 5. Continue lands on Trips and the day becomes playable ----------------
+# --- 6. Continue lands on Trips and the day becomes playable ----------------
 
 test_that("the day reaches Trips with its sidebar, clock bar and hints", {
   app$click(selector = "#confirm-continue")
@@ -196,7 +263,7 @@ test_that("the day reaches Trips with its sidebar, clock bar and hints", {
   expect_false(grepl("Following Policy", sidebar, fixed = TRUE))
 })
 
-# --- 6. accepting a trip advances the day ----------------------------------
+# --- 7. accepting a trip advances the day ----------------------------------
 
 test_that("accepting a trip moves the simulated clock", {
   before <- app$get_text("#trips-current_time")
@@ -208,7 +275,7 @@ test_that("accepting a trip moves the simulated clock", {
   expect_true(nzchar(app$get_text("#trips-current_time")))
 })
 
-# --- 7. the keyboard shortcuts preselect and confirm ------------------------
+# --- 8. the keyboard shortcuts preselect and confirm ------------------------
 
 key <- function(k) {
   app$run_js(sprintf(
@@ -251,7 +318,7 @@ test_that("the ? key opens the shortcuts dialog and Esc closes it", {
   expect_false(js_truthy("!!document.querySelector('.modal')"))
 })
 
-# --- 8. playing out the shift ends the day and opens Results ----------------
+# --- 9. playing out the shift ends the day and opens Results ----------------
 
 test_that("the shift ends on /finish and lands on Results", {
   # The mock advances 45 simulated minutes per decision, so the 8h shift
@@ -277,7 +344,7 @@ test_that("the shift ends on /finish and lands on Results", {
   expect_true(on_results())
 })
 
-# --- 9. Results: six KPIs, the percentile sentence and the seed badge -------
+# --- 10. Results: six KPIs, the percentile sentence and the seed badge -------
 
 test_that("Results shows the KPIs, the percentile and the custom-seed badge", {
   expect_true(on_results())
@@ -315,7 +382,7 @@ test_that("Results shows the KPIs, the percentile and the custom-seed badge", {
   expect_true(visible("#results-feedback"))
 })
 
-# --- 10. the feedback modal (6.5) ------------------------------------------
+# --- 11. the feedback modal (6.5) ------------------------------------------
 
 test_that("the feedback modal saves a rating", {
   app$click(selector = "#results-feedback")
@@ -345,7 +412,7 @@ last_share_email <- function() {
     (function(x) x$share_email %||% "")()
 }
 
-# --- 11. the share buttons and the second email prompt (6.5, 7.3) -----------
+# --- 12. the share buttons and the second email prompt (6.5, 7.3) -----------
 
 test_that("Results links the card and asks for the email Setup never sent", {
   # The anchors ship with href="#" and the server points them at the card once
@@ -398,7 +465,7 @@ test_that("Results links the card and asks for the email Setup never sent", {
   expect_equal(last$share_email, "driver@example.com")
 })
 
-# --- 12. the app forwarded the client IP ------------------------------------
+# --- 13. the app forwarded the client IP ------------------------------------
 
 test_that("the API received the X-Client-IP the app saw", {
   seen <- httr2::request(paste0(mock_url, "/__last")) |>

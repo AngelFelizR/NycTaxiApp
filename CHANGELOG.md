@@ -220,6 +220,27 @@ goes where.
   `ZonesShapes.qs2` in four wrong places and drawn an empty map with nothing
   in the logs to say why.
 
+- **The section-10 tests that did not exist, and the bug they found.**
+  - `smoke-stack.sh` gained §10(c) and §10(d): a throwaway container on
+    `nyctaxi_api_net` reaches `api:8000` but **cannot resolve** `postgres:5432`
+    or `redis:6379` (DNS itself fails -- they are only on `data_net`), and
+    `GET /health` without `X-Internal-Key` answers 403 through the real
+    router. Eleven hard checks now, not six.
+  - `integration/test-router-auth.R`: `internal_auth_header` is registered
+    exactly once, as a catch-all on `/*`, **before** the first route --
+    plumber2 aborts at startup if that order is wrong, and nothing else
+    noticed if the hook were removed.
+  - `app/test-session-isolation.R` (§6.1.5): no file under `app/` uses `<<-`
+    or `assign()`, the only environment is the preloaded-data cache in
+    `constants.R`, and two `init_estado()` calls cannot see each other. This
+    is what `allow-container-re-use: true` actually depends on.
+  - `share/test-no-pii.R` (§10): `ShareDataResponse` declares no
+    `experiment_id`/`email`/`name`/`resume_code`/`ip_hash`, and the renderer
+    picks its fields -- a payload carrying all four renders a page with none
+    of them while the whitelisted identity still appears.
+  - `test-shinytest2.R` gained the case §10 spells out: a mock answering 429
+    (via a new `POST /__fail` control route) must surface its own message.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -472,6 +493,20 @@ goes where.
      network the host joins. Now `127.0.0.1:2222:22`.
   6. `app_data_dir()` did not know about the mount target §8.3 uses (see
      Added).
+
+- **Failed API calls were silently swallowed: the visitor clicked and nothing
+  happened.** A rejected promise reaches `ExtendedTask$result()` as
+  `shiny.silent.error` **with an empty message** -- Shiny discards the text on
+  the way across -- and `task_result()` re-raised anything of that class to
+  wait quietly, so `showNotification` was unreachable dead code for every
+  mirai-backed call (all seven of them). `status()` does not help either: a
+  failed mirai task still reports `running`.
+  `api_async()` now never rejects. It resolves to `list(value = ...)` on
+  success and `list(failure = <the API's message>)` on failure, and
+  `task_result()` turns the latter into a notification and a `NULL` -- which
+  is what all seven callers already expect from a failure. Workers that will
+  not start resolve the same way through `promise_resolve`, because that path
+  cannot build a mirai. Section 10 asked for this test; the test found the bug.
 
 ### Fixed
 

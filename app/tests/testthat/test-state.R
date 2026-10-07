@@ -3,10 +3,6 @@
 # reactiveValues can only be read inside a reactive consumer, so every read
 # here goes through isolate().
 
-fake_session <- function(headers = list()) {
-  structure(list(request = headers), class = "MockShinySession2")
-}
-
 test_that("client_ip prefers X-Client-IP, then CF-Connecting-IP, then peer", {
   expect_equal(client_ip(fake_session(list(HTTP_X_CLIENT_IP = " 203.0.113.9 "))),
                "203.0.113.9")

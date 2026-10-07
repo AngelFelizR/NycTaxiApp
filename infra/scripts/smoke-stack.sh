@@ -174,6 +174,48 @@ else
   fail "nginx has no proxy_set_header Upgrade" "Shiny would fall back to SockJS"
 fi
 
+# ---- (f) section 10: a Shiny instance cannot reach the database ---------
+# The ephemeral Shiny containers join nyctaxi_api_net and nothing else (1.0),
+# so from that network the API has to answer and Postgres and Redis must not
+# resolve at all. Simulated with a throwaway container instead of starting a
+# real session -- same network, same result, no browser.
+if docker run --rm --network nyctaxi_api_net alpine:latest \
+     sh -c 'nc -z -w 3 api 8000' >/dev/null 2>&1; then
+  pass "(f) from api_net: api:8000 is reachable"
+else
+  fail "(f) from api_net: api:8000 unreachable" "the UI could not talk to the API"
+fi
+
+# postgres and redis exist only on nyctaxi_data_net, so DNS itself has to fail
+# here -- not just the connection.
+unreachable() {
+  if docker run --rm --network nyctaxi_api_net alpine:latest \
+       sh -c "nc -z -w 3 $1 $2" >/dev/null 2>&1; then
+    fail "(f) from api_net: $1:$2 is reachable" "section 1.0 forbids it"
+  else
+    pass "(f) from api_net: $1:$2 is unreachable"
+  fi
+}
+unreachable postgres 5432
+unreachable redis 6379
+
+# ---- (d) section 10: every endpoint answers 403 without the key ---------
+# The middleware is unit-tested (api/tests/test-utils.R); this is the router
+# actually applying it, with the key deliberately absent.
+# req_perform() throws on 4xx unless is_error is off (same gotcha as
+# share/R/api_client.R), so the status has to be read from a request that is
+# allowed to fail.
+nokey="$(docker exec nyctaxi-api Rscript -e '
+  r <- httr2::request("http://127.0.0.1:8000/health")
+  r <- httr2::req_timeout(r, 5)
+  r <- httr2::req_error(r, is_error = ~ FALSE)
+  cat(httr2::resp_status(httr2::req_perform(r)))' 2>/dev/null | tail -1 || true)"
+if [[ "$nokey" == "403" ]]; then
+  pass "(d) GET /health without X-Internal-Key -> 403"
+else
+  fail "(d) GET /health without X-Internal-Key -> ${nokey:-error}" "expected 403"
+fi
+
 # ---- §8.2: an upstream 503 falls into capacity-full.html ----------------
 # Stopping the API makes share answer 503, which is exactly the path Nginx
 # intercepts. The landing page itself does not depend on the API, so we probe

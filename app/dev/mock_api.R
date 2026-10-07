@@ -17,6 +17,16 @@ mock_env$next_id <- 1L
 mock_env$polls <- new.env(parent = emptyenv())
 mock_env$last_ip <- NULL
 mock_env$last_key <- NULL
+# Test hook (section 10: "estados de error"): when set, /validate-trip-start
+# and /experiments answer this status instead of succeeding, so shinytest2 can
+# assert the UI surfaces it. Cleared by POST /__fail with no status.
+mock_env$fail_status <- NULL
+mock_env$fail_message <- NULL
+mock_env$fail_hits <- 0L
+# Set by the handlers themselves (routr's request object does not expose the
+# path here), so a test can tell "the click never fired" from "the answer came
+# back wrong".
+mock_env$last_path <- NULL
 
 mock_serializers <- function() {
   list("application/json" = plumber2::format_unboxed())
@@ -53,6 +63,34 @@ mock_auth <- function(request, response) {
     return(plumber2::Break)
   }
   plumber2::Next
+}
+
+# Returns TRUE when a failure was injected, so the caller just Breaks.
+mock_inject <- function(response) {
+  if (is.null(mock_env$fail_status)) return(FALSE)
+  mock_env$fail_hits <- mock_env$fail_hits + 1L
+  response$status <- as.integer(mock_env$fail_status)
+  response$body <- list(
+    error = "rate_limit_exceeded",
+    message = mock_env$fail_message %||% ""
+  )
+  TRUE
+}
+
+# POST /__fail {status: 429, message: "..."} -- no status clears it.
+mock_set_fail <- function(request, response, body) {
+  payload <- mock_body(body)
+  st <- suppressWarnings(as.integer(payload$status %||% 0L))
+  if (length(st) != 1L || is.na(st) || st == 0L) {
+    mock_env$fail_status <- NULL
+    mock_env$fail_message <- NULL
+    mock_env$fail_hits <- 0L
+  } else {
+    mock_env$fail_status <- st
+    mock_env$fail_message <- as.character(payload$message %||% "")
+  }
+  response$body <- list(status = mock_env$fail_status)
+  plumber2::Break
 }
 
 mock_fail <- function(response, status, error, message) {
@@ -118,6 +156,8 @@ mock_health <- function(request, response) {
 }
 
 mock_validate <- function(request, response, body) {
+  mock_env$last_path <- "/validate-trip-start"
+  if (mock_inject(response)) return(plumber2::Break)
   payload <- mock_body(body)
   company <- payload$company %||% "Lyft"
   datetime <- payload$datetime %||% ""
@@ -145,6 +185,8 @@ mock_recommend <- function(request, response, body) {
 }
 
 mock_create <- function(request, response, body) {
+  mock_env$last_path <- "/experiments"
+  if (mock_inject(response)) return(plumber2::Break)
   payload <- mock_body(body)
   if (is.null(payload$company) || is.null(payload$start_datetime) ||
       is.null(payload$start_location_id)) {
@@ -290,7 +332,9 @@ mock_last_seen <- function(request, response) {
     key = if (is.null(mock_env$last_key)) "" else mock_env$last_key,
     # Kept apart from `last_*`: the test reads /__last at the very end, long
     # after the call that set it.
-    share_email = mock_env$last_share_email %||% ""
+    share_email = mock_env$last_share_email %||% "",
+    path = mock_env$last_path %||% "",
+    fail_hits = mock_env$fail_hits
   )
   plumber2::Break
 }
@@ -432,6 +476,8 @@ mock_api <- function(host = "127.0.0.1", port = 8010L) {
   }, serializers = js)
   api <- plumber2::api_get(api, "/health", mock_health, serializers = js)
   api <- plumber2::api_get(api, "/__last", mock_last_seen, serializers = js)
+  api <- plumber2::api_post(api, "/__fail", mock_set_fail,
+                            serializers = js, parsers = pj)
   api <- plumber2::api_post(api, "/validate-trip-start", mock_validate,
                             serializers = js, parsers = pj)
   api <- plumber2::api_post(api, "/recommend-start", mock_recommend,
