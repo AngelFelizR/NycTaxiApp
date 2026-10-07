@@ -101,6 +101,42 @@ test_that("every route behaves once booted against a stub API", {
                    label = path)
     }
 
+    # ---- POST /render-card (internal, ADR-005) -----------------------------
+    # The API pushes the payload because plumber2 serves one request at a
+    # time: pulling GET /share-data from here would call back into the handler
+    # that is waiting for the card.
+    payload <- charToRaw(jsonlite::toJSON(share_fixture(), auto_unbox = TRUE,
+                                          dataframe = "rows"))
+    ok <- httr2::request(paste0(base, "/render-card")) |>
+      httr2::req_timeout(20) |>
+      httr2::req_headers(`X-Internal-Key` = Sys.getenv("API_INTERNAL_KEY")) |>
+      httr2::req_body_raw(payload, type = "application/json") |>
+      httr2::req_error(is_error = ~ FALSE) |>
+      httr2::req_perform()
+    expect_equal(httr2::resp_status(ok), 200L)
+    expect_match(httr2::resp_content_type(ok), "image/png")
+    bytes <- httr2::resp_body_raw(ok)
+    expect_identical(as.integer(bytes[1:4]), c(137L, 80L, 78L, 71L))
+    expect_gt(length(bytes), 5000)
+    expect_match(httr2::resp_header(ok, "cache-control") %||% "", "no-store")
+
+    nokey <- httr2::request(paste0(base, "/render-card")) |>
+      httr2::req_timeout(20) |>
+      httr2::req_headers(`X-Internal-Key` = "not-the-key") |>
+      httr2::req_body_raw(payload, type = "application/json") |>
+      httr2::req_error(is_error = ~ FALSE) |>
+      httr2::req_perform()
+    expect_equal(httr2::resp_status(nokey), 403L)
+
+    junk <- httr2::request(paste0(base, "/render-card")) |>
+      httr2::req_timeout(20) |>
+      httr2::req_headers(`X-Internal-Key` = Sys.getenv("API_INTERNAL_KEY")) |>
+      httr2::req_body_raw(charToRaw('{"hello":"world"}'), type = "application/json") |>
+      httr2::req_error(is_error = ~ FALSE) |>
+      httr2::req_perform()
+    expect_equal(httr2::resp_status(junk), 422L)
+    expect_match(httr2::resp_body_json(junk)$message, "day_label")
+
     # ---- POST /waitlist ----------------------------------------------------
     ok <- httr2::request(paste0(base, "/waitlist")) |>
       httr2::req_body_json(list(email = "a@b.co"), auto_unbox = TRUE) |>

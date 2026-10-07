@@ -16,21 +16,43 @@ share_base_url <- function() {
   sub("/+$", "", Sys.getenv("SHARE_URL", "http://share:8001"))
 }
 
-# The result card PNG, or NULL when share is unreachable/failed (503).
-fetch_share_png <- function(token) {
-  url <- paste0(share_base_url(), "/share/", token, ".png")
-  dest <- tempfile(fileext = ".png")
-  on.exit(unlink(dest), add = TRUE)
-  status <- tryCatch(
-    utils::download.file(url, destfile = dest, quiet = TRUE, mode = "wb",
-                         method = "libcurl"),
-    error = function(e) 1L,
-    warning = function(w) 1L
+# Render the card at share/ and return its bytes, or NULL (-> 503).
+#
+# ADR-005: the payload is PUSHED, not pulled. plumber2/httpuv serves one
+# request at a time in the R process, and this call happens while this handler
+# *is* that request -- if share pulled `GET /share-data/{token}` from us here,
+# it would wait out its own 10 s timeout against a blocked API and answer 503.
+# Measured: a parallel `GET /health` stalled for 10 129 ms during the E2E run.
+render_card_at_share <- function(payload) {
+  resp <- tryCatch(
+    httr2::request(paste0(share_base_url(), "/render-card")) |>
+      httr2::req_timeout(30) |>
+      httr2::req_headers(`X-Internal-Key` = Sys.getenv("API_INTERNAL_KEY")) |>
+      httr2::req_body_json(payload) |>
+      httr2::req_error(is_error = ~ FALSE) |>
+      httr2::req_perform(),
+    error = function(e) {
+      cat("share-email: render request failed: ", conditionMessage(e), "\n",
+          file = stderr())
+      NULL
+    }
   )
-  if (!identical(as.integer(status), 0L) || !file.exists(dest)) return(NULL)
-  size <- file.size(dest)
-  if (is.na(size) || size < 1000) return(NULL)
-  readBin(dest, what = "raw", n = size)
+  if (is.null(resp)) return(NULL)
+
+  status <- httr2::resp_status(resp)
+  if (status != 200L) {
+    body <- tryCatch(httr2::resp_body_string(resp), error = function(e) "")
+    cat("share-email: render status ", status, ": ", body, "\n", file = stderr())
+    return(NULL)
+  }
+
+  bytes <- httr2::resp_body_raw(resp)
+  if (length(bytes) < 1000L) {
+    cat("share-email: rendered PNG too small: ", length(bytes), "\n",
+        file = stderr())
+    return(NULL)
+  }
+  bytes
 }
 
 # Port of an SMTP URL, tolerating credentials (smtp://user:pass@host:587).
@@ -178,9 +200,18 @@ share_email_handler <- function(request, response, id, body) {
     ))
   }
 
-  png <- fetch_share_png(as.character(exp$share_token))
+  # The three trajectories are what the card draws; without them there is no
+  # card, and the answer stays the 503 section 5.6 specifies.
+  user <- db_get_decisions(exp$id, "user")
+  policy <- db_get_decisions(exp$id, "policy")
+  baseline <- db_get_decisions(exp$id, "baseline")
+  if (is.null(user) || is.null(policy) || is.null(baseline)) {
+    return(api_error(
+      response, 503L, "service_unavailable", "Database unavailable."
+    ))
+  }
+  png <- render_card_at_share(share_data_payload(exp, user, policy, baseline))
   if (is.null(png)) {
-    cat("share-email: PNG fetch failed for ", exp$id, "\n", file = stderr())
     return(api_error(
       response, 503L, "service_unavailable",
       "We couldn't send the email, please try again later."

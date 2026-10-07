@@ -173,6 +173,69 @@ paths:
         "429":
           description: 429 - Nginx `limit_req` exceeded (10 r/s per IP). Nginx serves its own error page.
 
+  /render-card:
+    post:
+      operationId: renderCard
+      summary: Render the card from a pushed payload (internal)
+      description: |
+        **Internal route** (ADR-005). The private API pushes the
+        `ShareDataResponse` here instead of `share` pulling
+        `GET /share-data/{token}`: plumber2 serves one request at a time in a
+        single R process, so a pull would call back into the very handler that
+        is waiting for this card, and time out after 10 s.
+
+        The payload is the same document `GET /share-data` returns, so it
+        carries no `experiment_id`, no email and no IP (§5.7).
+
+        **Not reachable from the Internet.** Nginx proxies only `/share/` and
+        `/waitlist`, and this service's port is `expose:`, never `ports:`.
+        The key is what keeps other tenants of the private network from asking
+        us to render arbitrary payloads.
+      tags: [share]
+      security:
+        - InternalKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./openapi.yaml#/components/schemas/ShareDataResponse"
+      responses:
+        "200":
+          description: The rendered card (1200x630 PNG).
+          headers:
+            Cache-Control:
+              description: "Nothing to cache -- there is no public URL for this exchange."
+              schema:
+                type: string
+                example: no-store
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: 403 - missing or wrong X-Internal-Key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: forbidden
+                message: Invalid or missing X-Internal-Key header.
+        "422":
+          description: 422 - the body is not a share payload (missing day_label or history).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: 500 - the card could not be rendered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /waitlist:
     post:
       operationId: joinWaitlist
@@ -247,6 +310,14 @@ paths:
                 message: Service temporarily unavailable, please try again later.
 
 components:
+  securitySchemes:
+    InternalKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Key
+      description: |
+        Service-to-service key (value of `API_INTERNAL_KEY`). Only `/render-card`
+        requires it; the three public routes are unauthenticated by design.
   parameters:
     ShareToken:
       name: token

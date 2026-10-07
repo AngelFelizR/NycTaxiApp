@@ -13,10 +13,12 @@
 # The client IP is part of the rate limit (3 experiments/day/IP), so pass a
 # fresh one when re-running. The last steps also assume that
 # MODELS_DIR/ReferenceDistribution.qs2 is installed (finish answers 503
-# without it) and that SMTP_URL is empty (share-email answers 503 with it).
+# without it) and that SMTP_URL points at a working server -- the dev compose
+# sets it to the local mailpit catcher, so step 10b really delivers a message
+# and 10c reads it back. Without SMTP_URL, 10b answers 503 and 10c fails.
 set -u
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit 1
 line=$(grep -m1 "^API_INTERNAL_KEY=" .env); KEY=${line#API_INTERNAL_KEY=}
 B=${TAXI_API_URL:-http://127.0.0.1:8000}
 IP=${1:-198.51.100.90}
@@ -137,7 +139,7 @@ code=$(curl -s -o /tmp/e2e_r -w '%{http_code}' -X POST "$B/experiments/$id/feedb
 head -c 200 /tmp/e2e_r; echo
 check 200 "$code" "feedback"
 
-say "9. POST /share-email before finish (422, SMTP_URL is empty anyway)"
+say "9. POST /share-email before finish (422: the day is not finished yet)"
 code=$(curl -s -o /tmp/e2e_r -w '%{http_code}' -X POST "$B/experiments/$id/share-email" \
   "${H[@]}" -H "X-Resume-Code: $rc" -d '{"email":"driver@example.com"}')
 head -c 200 /tmp/e2e_r; echo
@@ -149,9 +151,41 @@ code=$(curl -s -o /tmp/e2e_r -w '%{http_code}' -X POST "$B/experiments/$id/finis
 head -c 400 /tmp/e2e_r; echo
 check 200 "$code" "finish"
 pct=$(cat /tmp/e2e_r | py 'print(d["result"]["user_percentile"])' 2>/dev/null || echo MISSING)
-check_ok=$(python3 -c "import sys;p='$pct';sys.exit(0 if p not in ('MISSING','None') else 1)") \
-  && echo "  ok:   user_percentile = $pct" \
-  || { echo "  FAIL: user_percentile = $pct"; fails=$((fails + 1)); }
+if python3 -c "import sys;p='$pct';sys.exit(0 if p not in ('MISSING','None') else 1)"; then
+  echo "  ok:   user_percentile = $pct"
+else
+  echo "  FAIL: user_percentile = $pct"
+  fails=$((fails + 1))
+fi
+
+say "10b. POST /share-email after finish (real SMTP delivery)"
+# Section 5.6 promises the card really arrives by email, so this cannot be a
+# mock: the message goes to the mailpit container the dev compose starts.
+mail_addr="e2e-$(date +%s)@example.com"
+code=$(curl -s -o /tmp/e2e_r -w '%{http_code}' -X POST "$B/experiments/$id/share-email" \
+  "${H[@]}" -H "X-Resume-Code: $rc" -d "{\"email\":\"$mail_addr\"}")
+head -c 200 /tmp/e2e_r; echo
+check 200 "$code" "share-email after finish"
+
+say "10c. the catcher holds the message and the card"
+MP=${MAILPIT_URL:-http://mailpit:8025}
+sleep 2
+box=$(curl -s --max-time 5 "$MP/api/v1/messages" || true)
+total=$(py 'print(d.get("total", 0))' <<<"$box" 2>/dev/null || echo 0)
+if [ "${total:-0}" -ge 1 ] 2>/dev/null; then
+  echo "  ok:   messages in catcher = $total"
+else
+  echo "  FAIL: messages in catcher = $total (expected >= 1)"
+  fails=$((fails + 1))
+fi
+
+mid=$(py 'print(d["messages"][0]["ID"])' <<<"$box" 2>/dev/null || echo "")
+subj=$(py 'print(d["messages"][0].get("Subject", ""))' <<<"$box" 2>/dev/null || echo "")
+echo "  info: to/subject = $subj"
+msg=$(curl -s --max-time 5 "$MP/api/v1/message/$mid" || true)
+att=$(py 'print(len(d.get("Attachments", [])))' <<<"$msg" 2>/dev/null || echo 0)
+# The whole point of the endpoint: the rendered card travels with the mail.
+check 1 "$att" "attachments (the share card)"
 
 say "11. POST /abandon after finish"
 code=$(curl -s -o /tmp/e2e_r -w '%{http_code}' -X POST "$B/experiments/$id/abandon" \

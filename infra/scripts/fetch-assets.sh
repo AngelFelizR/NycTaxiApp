@@ -45,6 +45,24 @@ EOF
   exit 1
 fi
 
+# The manifest must list everything before anything is downloaded: failing on
+# the first missing file would make the operator fix the release one entry at
+# a time, and 4.5 asks for verification, not for partial installs.
+absent=()
+for f in "${MODELS[@]}" "${DATA[@]}"; do
+  grep -qE "[[:space:]]${f}$" "$TMP/SHA256SUMS" || absent+=("$f")
+done
+if (( ${#absent[@]} > 0 )); then
+  {
+    echo "FAIL: SHA256SUMS on the release does not list ${#absent[@]} of"
+    echo "      $((${#MODELS[@]} + ${#DATA[@]})) expected files:"
+    printf '        - %s\n' "${absent[@]}"
+    echo "      Generate it with ./infra/scripts/make-manifest.sh and upload it"
+    echo "      next to the files (docs/operations/first-deploy.md, section 1)."
+  } >&2
+  exit 1
+fi
+
 # Lookup by file name. sha256sum writes "<hash>  <name>" (two spaces).
 hash_of() { awk -v f="$1" '$2 == f { print $1 }' "$TMP/SHA256SUMS"; }
 

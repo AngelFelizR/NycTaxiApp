@@ -78,6 +78,7 @@ Decisions the master document does not make, or makes differently.
 | [`0002-sensitivity-redis-cache.md`](0002-sensitivity-redis-cache.md) | — | Sensitivity endpoint cache semantics in Redis |
 | [`0003-shared-visual-config.md`](0003-shared-visual-config.md) | §1.3, §6.4 (differs) | Visual configuration in `shared/*.yaml`, read by both frontends |
 | [`0004-container-hardening.md`](0004-container-hardening.md) | §1.1, §5.10 (extends) | No capabilities, read-only roots, unprivileged user, CSP on the static pages -- and why ShinyProxy keeps `docker.sock` |
+| [`0005-push-the-card-payload.md`](0005-push-the-card-payload.md) | §5.6, §5.10 (differs) | The API pushes the card payload to `share/` instead of `share` calling back into the request that is waiting for it |
 
 ## Execution still pending
 

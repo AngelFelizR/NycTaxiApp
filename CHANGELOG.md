@@ -255,6 +255,27 @@ goes where.
   `nginx/snippets/security-headers.conf` because nginx does not inherit
   `add_header` into a location that defines its own.
 
+- **ADR-005 and `POST /render-card`: `share-email` finally delivers.** The
+  endpoint was structurally unable to succeed (see Fixed).
+- **Release tooling**: `infra/scripts/make-manifest.sh` builds `SHA256SUMS`
+  for all six assets, which live in *two* directories locally, so a plain
+  `sha256sum *` would cover half of them; and
+  `infra/scripts/test-fetch-assets.sh`, a hermetic self-test (six invented
+  files, no network, no real `.env`) covering the happy path, the idempotent
+  re-run, a manifest with entries missing -- it must name **all** of them
+  rather than fail one at a time -- and a wrong hash, which must leave the
+  destination untouched. `fetch-assets.sh` now reports every missing entry
+  before downloading anything instead of aborting on the first.
+- **A local SMTP catcher** (`mailpit`) in the development compose, plus
+  `TAXI_API_URL`, `SHARE_URL` and `SMTP_URL` in the dev container's
+  environment. `.env` is shared with production and describes the Docker
+  network, while the API runs *inside* that container, so the local addresses
+  are set where compose wins over `env_file`.
+- Two new E2E steps (10b/10c): `POST /share-email` after `finish`, then read
+  the message back from the catcher and assert the card arrived as an
+  attachment. Section 5.6 says the promise of "you will receive your card by
+  email" is real; now something proves it.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -544,6 +565,28 @@ goes where.
   `/root/.nix-profile`, which a non-root user cannot traverse, and the probe
   reads `$$API_INTERNAL_KEY` so `docker inspect` shows a variable name and
   never the value.
+
+- **`contract/share.openapi.yaml` gains `POST /render-card`.** Divergence with
+  §5.10, which lists `share/`'s routes as `GET /share/{token}`,
+  `GET /share/{token}.png`, `POST /waitlist` and `GET /health` (plus the Plan B
+  `client-token`). The new route is internal, requires `X-Internal-Key` and is
+  unreachable from the Internet: Nginx proxies only `/share/` and `/waitlist`,
+  and `share`'s port is `expose:`. Annotated here rather than corrected in the
+  master document; see `docs/decisions/0005-push-the-card-payload.md`.
+
+- **`POST /share-email` could never succeed, in any deployment.** plumber2
+  serves one request at a time in the R process, and the handler called
+  `share` for the card while `share` called back for the data: the callback
+  timed out after 10 s (measured: a parallel `GET /health` stalled for
+  **10 129 ms** during the E2E run), `share` answered 503, and the API turned
+  that into the 503 the visitor saw. The card is now **pushed**: the API
+  builds the payload itself through `share_data_payload()` -- the same builder
+  `GET /share-data/{token}` uses, so the two cannot drift -- and `share`
+  renders it without ever making a callback. The E2E proves it end to end: 200,
+  one message in the catcher, one attachment.
+- `fetch_share_png()`'s catch swallowed every reason for failing, so the only
+  clue was a bare "PNG fetch failed". The replacement logs the transport
+  error, the upstream status and the body.
 
 ### Fixed
 

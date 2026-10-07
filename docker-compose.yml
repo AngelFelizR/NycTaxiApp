@@ -15,6 +15,17 @@ services:
     # mori mmaps the fitted policy into /dev/shm (119 MB after quosure
     # sanitising); Docker's default 64 MB would fail with ENOSPC.
     shm_size: "2g"
+    environment:
+      # Values .env cannot carry, because .env is shared with production and
+      # describes the Docker network (TAXI_API_URL=http://api:8000) while the
+      # API runs *inside* this container. compose `environment:` wins over
+      # env_file, so development gets the local addresses:
+      #   TAXI_API_URL -- where the app and share/ reach the API
+      #   SHARE_URL    -- where the API fetches the card for share-email (5.6)
+      #   SMTP_URL     -- the local catcher instead of a real provider
+      TAXI_API_URL: "http://127.0.0.1:8000"
+      SHARE_URL: "http://127.0.0.1:8020"
+      SMTP_URL: "smtp://mailpit:1025"
     volumes:
       - .:/root/NycTaxiApp
       # Models are never baked into the image (section 4.5); read-only mount.
@@ -24,6 +35,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     networks:
       - nyctaxi_dev_net
 
@@ -42,6 +55,24 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nyctaxi} -d ${POSTGRES_DB:-nyctaxi}"]
       interval: 5s
       timeout: 5s
+      retries: 10
+    networks:
+      - nyctaxi_dev_net
+
+  # Local SMTP catcher so share-email can be exercised end to end (5.6): the
+  # API delivers here instead of an external provider, and you can read what
+  # was sent at http://127.0.0.1:8025. Dev only -- production keeps whatever
+  # SMTP_URL says in .env.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: nyctaxi-mailpit
+    ports:
+      - "127.0.0.1:1025:1025"   # SMTP
+      - "127.0.0.1:8025:8025"   # UI + REST API
+    healthcheck:
+      test: ["CMD", "/mailpit", "healthcheck"]
+      interval: 5s
+      timeout: 3s
       retries: 10
     networks:
       - nyctaxi_dev_net

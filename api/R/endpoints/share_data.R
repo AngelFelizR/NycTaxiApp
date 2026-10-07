@@ -3,6 +3,29 @@
 # only for experiments the player actually finished (404 otherwise, so an
 # unfinished day cannot be guessed at from its token).
 
+# The card payload (5.7), built in ONE place: GET /share-data/{token} and the
+# push that POST /share-email does (ADR-005) must not drift apart. No PII and
+# no experiment_id -- share/ renders from this and nothing else (9.1).
+share_data_payload <- function(exp, user, policy, baseline) {
+  outcome <- as.character(exp$outcome)
+  seed_is_custom <- isTRUE(exp$seed_is_custom)
+  list(
+    day_label = paste0("Day #", substr(as.character(exp$share_token), 1, 6)),
+    outcome = outcome,
+    seed_is_custom = seed_is_custom,
+    final_user_wage = as.numeric(exp$final_user_wage),
+    final_policy_wage = as.numeric(exp$final_policy_wage),
+    final_baseline_wage = as.numeric(exp$final_baseline_wage),
+    user_percentile = as.numeric(exp$user_percentile),
+    pct_following_policy = as.numeric(exp$pct_following_policy),
+    trips_accepted = as.integer(exp$trips_accepted),
+    trips_rejected = as.integer(exp$trips_rejected),
+    label = outcome_label(outcome, seed_is_custom),
+    share_text = outcome_share_text(outcome, seed_is_custom),
+    history = history_points(user, policy, baseline)
+  )
+}
+
 share_data_handler <- function(request, response, token) {
   if (!is_string(token) || !grepl("^[A-Za-z0-9_-]{12}$", token)) {
     return(api_error(response, 404L, "not_found", "Not found."))
@@ -29,22 +52,6 @@ share_data_handler <- function(request, response, token) {
   # First fetch of this token = one share card generated (for /metrics).
   mark_share_generated(token)
 
-  outcome <- as.character(exp$outcome)
-  seed_is_custom <- isTRUE(exp$seed_is_custom)
-  response$body <- list(
-    day_label = paste0("Day #", substr(as.character(exp$share_token), 1, 6)),
-    outcome = outcome,
-    seed_is_custom = seed_is_custom,
-    final_user_wage = as.numeric(exp$final_user_wage),
-    final_policy_wage = as.numeric(exp$final_policy_wage),
-    final_baseline_wage = as.numeric(exp$final_baseline_wage),
-    user_percentile = as.numeric(exp$user_percentile),
-    pct_following_policy = as.numeric(exp$pct_following_policy),
-    trips_accepted = as.integer(exp$trips_accepted),
-    trips_rejected = as.integer(exp$trips_rejected),
-    label = outcome_label(outcome, seed_is_custom),
-    share_text = outcome_share_text(outcome, seed_is_custom),
-    history = history_points(user, policy, baseline)
-  )
+  response$body <- share_data_payload(exp, user, policy, baseline)
   plumber2::Break
 }

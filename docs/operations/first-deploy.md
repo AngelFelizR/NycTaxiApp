@@ -14,21 +14,51 @@ Companion documents: `runbook.md` for what happens *after* the first deploy,
 
 `infra/scripts/fetch-assets.sh` refuses to install anything it cannot check
 (section 4.5), and the deploy job runs it before touching the stack. As of
-today the `v0.0.1-data` release is **not deployable** for two reasons:
+today the `v0.0.1-data` release is **not deployable**, for two reasons: it
+publishes no `SHA256SUMS`, and it does not carry `ReferenceDistribution.qs2`
+(so `/finish` answers 503 and a day can never end).
 
-| Problem | Fix |
-|---|---|
-| No `SHA256SUMS` asset | `cd <directory-with-the-files> && sha256sum * > SHA256SUMS`, upload it as a release asset on the same tag. |
-| No `ReferenceDistribution.qs2` | Run `Rscript tools/build_reference_distribution.R` (~75 min, needs models and dataset), upload it **and** refresh `SHA256SUMS` so it is covered. |
+Both files already exist on the workstation — they were never *published*:
 
-Verify:
+```sh
+ls -la ~/nyctaxi/models/ReferenceDistribution.qs2   # 12 kB, generated 2026-10-05
+```
+
+**What has to be uploaded** (six assets plus the manifest; `make-manifest.sh`
+knows the list, and it handles the fact that the files live in two
+directories):
+
+```sh
+./infra/scripts/make-manifest.sh        # writes ./SHA256SUMS with all six
+
+gh release upload v0.0.1-data \
+    SHA256SUMS \
+    ~/nyctaxi/models/ReferenceDistribution.qs2 \
+    --clobber
+```
+
+No `gh`? The web UI works too: GitHub → Releases → `v0.0.1-data` → *Edit* →
+drag the two files in. What matters is that **both** end up on that tag.
+
+**Verify before believing it** (this is the step the deploy runs; it must
+exit 0 and print `assets ready`):
 
 ```sh
 MODELS_DIR=/tmp/m DATA_DIR=/tmp/d ./infra/scripts/fetch-assets.sh v0.0.1-data
-echo $?    # 0 and "assets ready" -- anything else means the release is still wrong
+echo $?    # 0 = ok; anything else = the release is still wrong
 ```
 
-Until this passes, every deploy stops at this step **by design**.
+Until that passes, every deploy stops at this step **by design**. Do not work
+around it by setting `SKIP_VERIFY`: 4.5 asks for verification precisely
+because a half-written 345 MB policy file would let the API start and serve
+garbage.
+
+The verifier itself is covered by
+`./infra/scripts/test-fetch-assets.sh`, a hermetic self-test (six invented
+files, no network, no real `.env`) that checks the happy path, the idempotent
+re-run, a manifest with entries missing -- it must name **all** of them at
+once rather than fail one at a time -- and a wrong hash, which must leave the
+destination untouched.
 
 ---
 

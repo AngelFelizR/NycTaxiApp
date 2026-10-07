@@ -210,6 +210,16 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   stub suyo. Arrancarlo a mano (cwd = raíz):
   `nix-shell share/default.dev.nix --run "Rscript share/plumber.R"` →
   escucha en `SHARE_PORT` (8020) e imprime la URL base y el RSS.
+- **Release de datos**: `./infra/scripts/make-manifest.sh` escribe
+  `SHA256SUMS` para los 6 ficheros (viven en `models/` **y** `data/`, así que
+  `sha256sum *` solo cubriría la mitad); `./infra/scripts/test-fetch-assets.sh`
+  los verifica de punta a punta con ficheros inventados (sin red, sin `.env`).
+  Subir `SHA256SUMS` + `ReferenceDistribution.qs2` al release: ver
+  `docs/operations/first-deploy.md` §1.
+- **SMTP en desarrollo**: el compose de dev trae `mailpit` y fija
+  `SMTP_URL=smtp://mailpit:1025`, `TAXI_API_URL` y `SHARE_URL` en el
+  contenedor (gana `environment:` sobre `env_file`, así que `.env` sigue
+  valiendo para producción). Lee lo enviado en `http://127.0.0.1:8025`.
 - **Smoke del stack** (raíz, necesita Docker y los modelos en `MODELS_DIR`):
   `./infra/scripts/smoke-stack.sh` → sale con 0. `SMOKE_KEEP=1` lo deja
   corriendo; es la única comprobación de §10 que existe hoy.
@@ -364,6 +374,15 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
   enviaba `-d '{}'` por el mismo motivo.
 
 ## El servicio público `share/`
+- **`POST /render-card` (interna, ADR-005).** La API empuja el payload en vez
+  de que `share/` lo pida: plumber2 atiende **una petición a la vez** en el
+  proceso R, así que un GET de vuelta bloqueaba contra el propio handler que
+  esperaba la tarjeta (medido: `GET /health` parado **10 129 ms**). El payload
+  es el mismo documento de `GET /share-data` — lo construye
+  `share_data_payload()`, el único builder de los dos caminos — y exige
+  `X-Internal-Key`. **Divergencia con §5.10** (que no la lista), anotada en
+  `CHANGELOG.md`; no llega de Internet porque Nginx solo proxya `/share/` y
+  `/waitlist` y el puerto es `expose:`, no `ports:`.
 - **Es el único servicio expuesto a Internet** (§5.10, §7): por eso no lleva
   credenciales de base de datos ni modelos — solo habla con
   `GET /share-data/{token}` y `POST /waitlist` de la API privada, con

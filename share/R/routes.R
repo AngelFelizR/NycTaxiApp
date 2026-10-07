@@ -56,6 +56,65 @@ bad_request <- function(response, error, message) {
   plumber2::Break
 }
 
+# The one route on this service that is NOT public (ADR-005). The API is on
+# nyctaxi_api_net like everything else here, so the key is what keeps a
+# neighbour -- a Shiny container, say -- from asking us to render arbitrary
+# payloads. Compared with plain `identical` rather than a constant-time digest
+# the way the API does it: this is a 44-character random key on a private
+# network whose port is never published, not an endpoint behind the edge.
+internal_key_ok <- function(request) {
+  expected <- Sys.getenv("API_INTERNAL_KEY")
+  provided <- request$get_header("x-internal-key")
+  nzchar(expected) && is.character(provided) && length(provided) == 1L &&
+    nzchar(provided) && identical(expected, provided)
+}
+
+# ---- POST /render-card (internal, ADR-005) --------------------------------
+# The API pushes the card payload because plumber2 serves one request at a
+# time: if we pulled GET /share-data/{token} here we would be calling back
+# into the very handler that is waiting for us. The payload is the same
+# document GET /share-data returns, so it inherits 5.7: no experiment_id, no
+# email, no IP.
+render_card_handler <- function(request, response, body) {
+  if (!internal_key_ok(request)) {
+    response$status <- 403L
+    response$body <- list(error = "forbidden",
+                          message = "Invalid or missing X-Internal-Key header.")
+    return(plumber2::Break)
+  }
+
+  payload <- tryCatch(
+    jsonlite::fromJSON(rawToChar(body), simplifyVector = TRUE),
+    error = function(e) NULL
+  )
+  if (!is.list(payload) || is.null(payload$day_label) ||
+      is.null(payload$history)) {
+    response$status <- 422L
+    response$body <- list(
+      error = "unprocessable_entity",
+      message = "Expected a share payload: day_label and history."
+    )
+    return(plumber2::Break)
+  }
+
+  bytes <- tryCatch(share_png(payload), error = function(e) {
+    cat("render-card: ", conditionMessage(e), "\n", file = stderr())
+    NULL
+  })
+  if (is.null(bytes)) {
+    response$status <- 500L
+    response$body <- list(error = "internal_error",
+                          message = "Could not render the card.")
+    return(plumber2::Break)
+  }
+
+  respond_png(response)
+  # Not a public resource: there is no URL to cache, only this exchange.
+  response$set_header("Cache-Control", "no-store")
+  response$body <- bytes
+  plumber2::Break
+}
+
 # ---- GET /share/{token}.png ------------------------------------------------
 # 7.1: cached in Redis for 24h, never on disk, served with the long
 # Cache-Control so Cloudflare and the crawlers never re-render it.
@@ -168,6 +227,10 @@ share_api <- function(host = "0.0.0.0", port = 8020L) {
   # swallow "abc123.png" and the HTML handler would 404 it.
   api <- plumber2::api_get(api, "/share/<token>.png", png_handler, serializers = json_fmt)
   api <- plumber2::api_get(api, "/share/<token>", html_handler, serializers = json_fmt)
+  # Internal: never reachable from the Internet, because Nginx proxies only
+  # /share/ and /waitlist and this port is expose:, not ports:.
+  api <- plumber2::api_post(api, "/render-card", render_card_handler,
+                            serializers = json_fmt, parsers = raw_parsers)
   api <- plumber2::api_post(api, "/waitlist", waitlist_handler,
                             serializers = json_fmt, parsers = raw_parsers)
   plumber2::api_any(api, "/*", not_found_handler, serializers = json_fmt)

@@ -45,11 +45,21 @@ api_share_data <- function(ctx, token) {
         httr2::resp_status(r) >= 500
       }) |>
       httr2::req_perform(),
-    error = function(e) NULL
+    error = function(e) {
+      # Without this a failed upstream becomes a bare 503 and the card has
+      # nothing to say about why (the same gap share-email had).
+      cat("share-data: request failed: ", conditionMessage(e), "\n",
+          file = stderr())
+      NULL
+    }
   )
   if (is.null(res)) return(list(status = 503L, data = NULL))
-  list(status = httr2::resp_status(res),
-       data = if (httr2::resp_status(res) == 200L) {
+  status <- httr2::resp_status(res)
+  if (status != 200L) {
+    cat("share-data: upstream ", status, " for ", token, "\n", file = stderr())
+  }
+  list(status = status,
+       data = if (status == 200L) {
          httr2::resp_body_json(res, simplifyVector = TRUE)
        } else {
          NULL
