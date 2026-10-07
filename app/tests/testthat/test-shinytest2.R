@@ -97,6 +97,15 @@ message(sprintf(
   if (is.null(chromote::find_chrome())) "NULL" else chromote::find_chrome(),
   Sys.getenv("TAXI_API_URL")
 ))
+# Do not replace a session that has not finished rendering. bslib compiles
+# the theme into tempdir()/bslib-<hash>/ and then copies the bootstrap JS
+# over it, per session; reloading while that is still running made the second
+# session collide with the first one in that directory and come back as an
+# error page ("file.copy ... Permission denied", shiny-connected=FALSE) --
+# which is what the DIAG block below reports when it happens. Waiting for the
+# setup screen first is the condition the test already asserts after the
+# reload, so nothing is being skipped, only ordered.
+app$wait_for_js("!!document.querySelector('#setup-validate')", timeout = 30000)
 app$run_js("window.location.reload()")
 loaded <- tryCatch(
   app$wait_for_js("!!document.querySelector('#setup-validate')", timeout = 30000),
