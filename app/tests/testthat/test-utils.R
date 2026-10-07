@@ -93,9 +93,16 @@ test_that("app_options preloads companies and zones from the data volume", {
 
 test_that("app_data_dir falls back to a path that exists", {
   expect_true(nzchar(app_data_dir()))
-  expect_true(dir.exists(app_data_dir()) ||
-                dir.exists("/srv/nyctaxi/data") ||
-                dir.exists("/data"))
+  # Nothing to fall back *to* on a machine with no volume mounted; asserting
+  # that one of the hard-coded paths exists was a claim about the machine,
+  # not about the code, and it failed on every CI runner. What the code
+  # promises is that the first candidate that exists wins -- checked here when
+  # there is one, and checked as a list in the test below.
+  cands <- app_data_candidates()
+  cands <- cands[nzchar(cands)]
+  existing <- cands[dir.exists(cands)]
+  skip_if_not(length(existing) > 0L, "no data volume is mounted here")
+  expect_identical(app_data_dir(), existing[[1L]])
 })
 
 test_that("app_data_dir knows every place the data volume is mounted", {
