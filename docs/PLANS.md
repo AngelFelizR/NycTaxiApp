@@ -166,7 +166,7 @@ Splitting a Nix expression cannot reach it.
 
 ---
 
-## Plan C — `GET /state` made replica-agnostic
+## Plan C — `GET /state` made replica-agnostic — **done** (ADR-0009)
 
 Specification given directly; no service redesign, no heartbeat.
 

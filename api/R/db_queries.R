@@ -146,6 +146,32 @@ db_mark_trajectories_ready <- function(id) {
   })
 }
 
+# Publishes the "setup" percentage on the row (plan C). Returns the number of
+# rows updated: 0 is not an error, it means the day has already left setup and
+# the writer is a stale child -- which is exactly what the status guard is for,
+# so a child that outlives its parent can no longer overwrite a day that has
+# moved on. Out-of-range values are clamped rather than left for the CHECK
+# constraint to reject: a failed publish must not abort the trajectory.
+db_publish_setup_progress <- function(id, progress) {
+  pool <- db_pool()
+  if (is.null(pool)) return(NULL)
+  # A non-UUID is never an experiment (the writers' own tests pass a
+  # placeholder), and letting Postgres reject it would log an error for a
+  # call that is meant to be a no-op.
+  if (!is_string(id) || !grepl(UUID_PATTERN, id)) return(NULL)
+  progress <- max(0L, min(99L, as.integer(progress)))
+  db_try("publish_setup_progress", {
+    # dbExecute, not dbGetQuery: what matters is how many rows matched, and
+    # that is what dbExecute returns without a RETURNING clause.
+    as.integer(DBI::dbExecute(pool, paste0(
+      "UPDATE experiments SET setup_progress = ", progress,
+      ", updated_at = now()",
+      " WHERE id = ", db_lit(pool, as.character(id)),
+      " AND status = 'setup'"
+    )))
+  })
+}
+
 # Bulk write of one trajectory (created in a single statement; ~50 rows).
 # Returns the number of rows written, or NULL.
 db_insert_decisions <- function(experiment_id, decision_source, decisions) {
@@ -175,11 +201,18 @@ db_insert_decisions <- function(experiment_id, decision_source, decisions) {
 
 # Rows (0 or 1) or NULL on a database error, so callers can tell "no such
 # experiment" (404) from "the database is down" (503).
-db_get_experiment <- function(id) {
+# `lock` adds FOR SHARE (plan C): GET /state takes it so a concurrent flip of
+# status cannot land between this read and the body built from it. What the
+# statement really buys is that it waits for an in-flight UPDATE to finish;
+# holding the lock past the response would need a transaction spanning the
+# handler, and the body is built from this one snapshot anyway -- recorded in
+# ADR-0009 rather than pretended away.
+db_get_experiment <- function(id, lock = FALSE) {
   pool <- db_pool()
   if (is.null(pool)) return(NULL)
   db_try("get_experiment", DBI::dbGetQuery(pool, paste0(
-    "SELECT * FROM experiments WHERE id = ", db_lit(pool, as.character(id))
+    "SELECT * FROM experiments WHERE id = ", db_lit(pool, as.character(id)),
+    if (lock) " FOR SHARE" else ""
   )))
 }
 

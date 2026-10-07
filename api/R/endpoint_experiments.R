@@ -51,14 +51,14 @@ resume_hash <- function(resume_code) {
 
 # Loads the experiment behind X-Resume-Code. Returns list(ok, experiment) or
 # list(ok = FALSE, fail = <plumber2 Break>) with the response already set.
-auth_experiment <- function(request, response, id) {
+auth_experiment <- function(request, response, id, lock = FALSE) {
   fail <- function(status, error, message) {
     list(ok = FALSE, fail = api_error(response, status, error, message))
   }
   if (!is_string(id) || !grepl(UUID_PATTERN, id)) {
     return(fail(404L, "not_found", "Experiment not found."))
   }
-  rows <- db_get_experiment(id)
+  rows <- db_get_experiment(id, lock = lock)
   if (is.null(rows)) return(fail(503L, "service_unavailable", "Database unavailable."))
   exp <- first_row(rows)
   if (is.null(exp)) return(fail(404L, "not_found", "Experiment not found."))
@@ -169,12 +169,18 @@ experiment_body <- function(exp, user = NULL) {
 
 # Approximate progress (0-99) reported while the background job runs. The
 # field is dropped as soon as the experiment leaves "setup", so 100 is implied
-# by status rather than by the number: policy days run 0-94 by row count,
-# the baseline batch (written at once) lands at 99 until the flip.
-model_progress <- function(policy, baseline) {
-  if (nrow(baseline) > 0L) return(99L)
-  if (nrow(policy) == 0L) return(0L)
-  as.integer(min(94L, round(94 * nrow(policy) / EXPECTED_POLICY_STEPS)))
+# by status rather than by the number.
+#
+# Read from the row, not derived from the trajectory tables (plan C): the
+# forked child publishes it every five-step chunk, so any replica or a
+# restarted parent sees the same number from one column, and GET /state does
+# not have to count rows it would otherwise not need. NULL means the child has
+# not published yet -- the first publish lands at the first chunk, so the
+# value the player sees is 0 either way.
+model_progress <- function(exp) {
+  p <- exp$setup_progress
+  if (is.null(p) || length(p) == 0L || is.na(p)) return(0L)
+  as.integer(max(0L, min(99L, as.integer(p))))
 }
 
 # DayState shared by POST /experiments, GET /state and POST /decisions.
@@ -209,7 +215,7 @@ build_state_body <- function(exp, sim, user, policy, baseline) {
   # Only while the model is still working: a NULL element would serialise as
   # "{}" instead of disappearing, so the key is added conditionally.
   if (identical(status, "setup")) {
-    state$model_progress <- model_progress(policy, baseline)
+    state$model_progress <- model_progress(exp)
   }
   state
 }
@@ -304,6 +310,17 @@ trajectory_writer <- function(experiment_id, source, chunk_size = 5L,
       stop("failed to persist ", source, " decisions (database error)")
     }
     written <<- n
+    # Plan C: publish the percentage on the row as the trajectory lands, so
+    # the reader never has to count the rows itself. Five steps per chunk, so
+    # this is one UPDATE per chunk; the value is the same formula /state used
+    # to evaluate. Only the policy stream publishes: baseline is written in
+    # one batch at the end and is handled by compute_trajectories.
+    if (identical(source, "policy")) {
+      db_publish_setup_progress(
+        experiment_id,
+        min(94L, round(94 * n / EXPECTED_POLICY_STEPS))
+      )
+    }
     invisible(written)
   }
 }
@@ -352,6 +369,10 @@ compute_trajectories <- function(exp, isolated = TRUE) {
     )
     if (!is.null(sim_baseline$error)) stop("baseline: ", sim_baseline$error)
     baseline_writer(sim_baseline$decisions, flush = TRUE)
+    # The baseline batch is what used to make the old derivation report 99;
+    # publish it before the status flip below, which is what makes the number
+    # stop mattering.
+    db_publish_setup_progress(exp$id, 99L)
     TRUE
   }, error = function(e) {
     cat("trajectories failed for ", exp$id, ": ", conditionMessage(e), "\n",
@@ -619,7 +640,11 @@ get_experiment_handler <- function(request, response, id) {
 # ---- GET /experiments/{id}/state ------------------------------------------
 
 get_state_handler <- function(request, response, id) {
-  auth <- auth_experiment(request, response, id)
+  # lock = TRUE (plan C): this is the only read whose result is rendered
+  # straight back, so it takes FOR SHARE and waits out an in-flight flip of
+  # status rather than racing it. See ADR-0009 for what that does and does
+  # not guarantee.
+  auth <- auth_experiment(request, response, id, lock = TRUE)
   if (!auth$ok) return(auth$fail)
   exp <- auth$experiment
 

@@ -352,6 +352,19 @@ goes where.
   you run `nix` — and the two differ by an unused binary rather than by a
   behaviour, so there is no test/prod asymmetry.
 
+- **`GET /state` no longer derives its `model_progress`** (ADR-0009): the
+  forked child publishes the percentage on the `experiments` row every five
+  steps, guarded by `AND status = 'setup'` so a stale child gets zero rows
+  instead of overwriting a day that has moved on. The reader now takes one
+  column instead of counting rows in two tables, and reads it with
+  `FOR SHARE`. `api/migrations/002_setup_progress.sql` adds
+  `setup_progress SMALLINT` with a `BETWEEN 0 AND 99` check; `NULL` means
+  nothing has been published and renders as 0. `model_state$traj_jobs` keeps
+  exactly the job it had -- a fork table to reap zombies from -- and is never
+  read to build a response. The timeout is untouched: still `created_at`, so
+  a dead child leaves a frozen number and the row is still retired.
+  `contract/openapi.yaml` is unchanged, by design.
+
 ### Changed
 - **AGENTS' "Peso de las images" section was wrong and is now measured.** It
   said the ~2 GB of toolchain "vienen de `nix/system.nix`" and that splitting

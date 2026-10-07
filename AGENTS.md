@@ -324,7 +324,11 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   ~75 min).
 - Las tablas viven en Postgres (nada de experimentos cacheados en
   `model_state`); solo se guardan ahí `traj_jobs` (hijos por recoger) y la
-  distribución de referencia. Los tests fijan `API_EXPERIMENTS_SYNC="1"`
+  distribución de referencia. **El % de `setup` también**: `setup_progress`
+  (migración `002`) lo publica el hijo cada 5 pasos con
+  `AND status = 'setup'` (ADR-0009), y `/state` lo lee de ahí con `FOR SHARE`
+  en vez de contar filas — `traj_jobs` no se lee nunca para construir la
+  respuesta, solo para recoger zombies. Los tests fijan `API_EXPERIMENTS_SYNC="1"`
   (`helper-load.R`) para que el create corra inline y no haya carreras de
   sondeo.
 

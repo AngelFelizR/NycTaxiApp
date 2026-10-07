@@ -46,20 +46,21 @@ test_that("a lost write stops the simulation instead of promoting the day", {
   expect_error(w(data.frame(step = 1:5)), "failed to persist")
 })
 
-test_that("model_progress reports the background job without ever hitting 100", {
-  none <- empty_decisions()
-  expect_identical(model_progress(none, none), 0L)
+test_that("model_progress reads the row and never reports 100", {
+  # Plan C: the number is published by the child, so everything this reads is
+  # one column -- not a count of rows in two tables.
+  expect_identical(model_progress(list()), 0L)              # NULL: not yet
+  expect_identical(model_progress(list(setup_progress = NULL)), 0L)
+  expect_identical(model_progress(list(setup_progress = NA)), 0L)
+  expect_identical(model_progress(list(setup_progress = 0L)), 0L)
+  expect_identical(model_progress(list(setup_progress = 30L)), 30L)
 
-  # model_progress only looks at row counts, so the rows themselves are stubs.
-  policy <- data.frame(step = seq_len(30))
-  expect_true(model_progress(policy, none) > 0L)
-  expect_true(model_progress(policy, none) <= 94L)
-
-  # Once the baseline batch is stored the experiment is one step from flipping.
-  expect_identical(model_progress(policy, policy), 99L)
-
-  big <- data.frame(step = seq_len(400))
-  expect_identical(model_progress(big, none), 94L)
+  # The contract says 0-99 and the CHECK enforces it; a value that somehow
+  # got past both is still clamped rather than leaked to the client.
+  expect_identical(model_progress(list(setup_progress = 99L)), 99L)
+  expect_identical(model_progress(list(setup_progress = 100L)), 99L)
+  expect_identical(model_progress(list(setup_progress = -1L)), 0L)
+  expect_identical(model_progress(list(setup_progress = 400L)), 99L)
 })
 
 # A row in "setup" without a background job: the state a client sees while
