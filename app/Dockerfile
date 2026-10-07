@@ -31,7 +31,7 @@ WORKDIR /build
 COPY nix/ ./nix/
 
 # pkgs-app.nix is r-app.nix's own default pin, so only `withDev` is passed.
-RUN nix-build nix/system.nix -o /out-system && \
+RUN nix-build nix/system-runtime.nix -o /out-system && \
     nix-build -E '(import ./nix/r-app.nix { withDev = false; })' -o /out-rapp && \
     nix-store -qR /out-system /out-rapp | sort -u > /closure
 
@@ -83,7 +83,7 @@ RUN mkdir -p /opt/r-lib \
 # with an explicit HOME is the portable choice. Everything R writes goes to
 # /tmp, which docker-compose.prod.yml declares as a tmpfs; HOME points there
 # so fontconfig, bslib and Shiny's session files have somewhere to land.
-# curl is used by the healthcheck and comes from nix/system.nix (/opt/system),
+# curl is used by the healthcheck and comes from nix/system-runtime.nix (/opt/system),
 # not from /root/.nix-profile, which a non-root user cannot traverse.
 ENV HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache

@@ -559,9 +559,9 @@ de desarrollo **no** lleva Docker; ahí solo hay sshd y el repo montado):
 
 | Imagen | Tamaño | Arranque verificado |
 |---|---|---|
-| `ghcr.io/angelfelizr/nyc-taxi-share:test` | 4,3 GB | `Listening … RSS 199 MB` (límite de §1.1: 256 MB), `/health` 200, `/share/<junk>` 503 JSON |
-| `ghcr.io/angelfelizr/nyc-taxi-api:test` | 4,9 GB | `Listening … RSS 373 MB`; sin modelos/DB/Redis degrada con mensajes en vez de morir (warmup en `tryCatch`) |
-| `ghcr.io/angelfelizr/nyc-taxi-shiny:test` | 5,32 GB | `Listening on :3838`, `GET /` 200 y **`GET /privacy.html` 200 con el enlace presente dos veces** (Setup + footer) |
+| `ghcr.io/angelfelizr/nyc-taxi-share:test` | 4,23 GB | `Listening … RSS 199 MB` (límite de §1.1: 256 MB), `/health` 200, `/share/<junk>` 503 JSON |
+| `ghcr.io/angelfelizr/nyc-taxi-api:test` | 4,83 GB | `Listening … RSS 373 MB`; sin modelos/DB/Redis degrada con mensajes en vez de morir (warmup en `tryCatch`) |
+| `ghcr.io/angelfelizr/nyc-taxi-shiny:test` | 5,22 GB | `Listening on :3838`, `GET /` 200 y **`GET /privacy.html` 200 con el enlace presente dos veces** (Setup + footer) |
 
 - Los builds tardan ~10 min (share), ~45 min (api) y ~15 min (app) porque el
   store del contenedor de build está vacío y **compila los paquetes R desde
@@ -600,13 +600,24 @@ de desarrollo **no** lleva Docker; ahí solo hay sshd y el repo montado):
 
 ### Peso de las imágenes (seguimiento, no bloquea)
 
-~2 GB de cada imagen es toolchain que un runtime no necesita: `openjdk` 572 MB,
-`source` 482 MB, `gfortran` 338 MB, `gcc` 283 MB, `glibc-locales` 222 MB,
-`python3` 143 MB. Vienen de `nix/system.nix`, que incluye `pkgs.nix` y la
-toolchain que `R` arrastra. §1.1 limita la **RAM** (256 MB / 1,5 GB), no el
-tamaño de imagen, así que esto no incumple nada — pero separar un
-`nix/system-runtime.nix` (sin `nix`, sin toolchain) para las imágenes bajaría
-cada una ~2 GB y haría los push de GHCR bastante más rápidos.
+**Medido, y no era lo que decía este texto.** El cierre de `nix/system.nix`
+son 2608 MB, pero la expresión solo declara 10 paquetes: la toolchain no está
+en ella, está en la **salida de `R`**, que referencia `openjdk` (573 MB),
+`gfortran` (339), `gcc` (284) y `python3` (144) porque son sus `buildInputs`.
+Separar una expresión de Nix no los saca.
+
+- **Hecho (ADR-0008):** las tres imágenes construyen
+  `nix/system-runtime.nix` = `system.nix` sin `nix`. El cierre baja
+  2608 → 2364 MB, pero **la imagen real baja ~70 MB** (share 4,3 → 4,23;
+  api 4,9 → 4,83; shiny 5,32 → 5,22): la suma de `du` por ruta de store
+  cuenta dos veces los ficheros enlazados en duro con lo que se queda. Los shells de desarrollo siguen con `system.nix` (ahí es donde
+  se ejecuta `nix`), y la única diferencia entre ambos es un binario que no
+  se usa, no un comportamiento — por eso no crea asimetría test/prod.
+- **Descartado:** reescribir R con `removeReferencesTo` para esos 1,34 GB
+  (proyecto aparte: hay que revalidar `R CMD INSTALL` y el arranque de R, y
+  quitar `gcc` rompería el primer paquete con código compilado). §1.1 limita
+  la **RAM**, no el tamaño de imagen, así que nada lo exige.
+- §1.1 sigue sin incumplirse; los push de GHCR son lo lento.
 
 ### El smoke del stack
 
@@ -671,8 +682,9 @@ Se interpreta como "no es un cliente de la API". Divergencia anotada en
 
 ### Seguimiento pendiente
 
-- **Peso de las imágenes:** ver "Peso de las imágenes" arriba (~2 GB de
-  toolchain por imagen que un runtime no usa).
+- **Peso de las imágenes:** ver "Peso de las imágenes" arriba — ya medido;
+  la parte alcanzable sin tocar R está hecha (ADR-0008) y la de R queda
+  anotada.
 - ~~`shinytest2` en el set de runtime de la UI~~ — resuelto (ADR-0007): vive
   en `nix/test-tools.nix` junto al navegador. Ojo: `app/default.dev.nix` tiene
   que nombrarlo en `R_LIBS_SITE`, o R no lo ve y el test de flujo se salta.

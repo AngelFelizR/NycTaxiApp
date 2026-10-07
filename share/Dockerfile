@@ -31,7 +31,7 @@ WORKDIR /build
 # or a package set changes, which is most of what a rebuild would otherwise cost.
 COPY nix/ ./nix/
 
-RUN nix-build nix/system.nix       -o /out-system && \
+RUN nix-build nix/system-runtime.nix -o /out-system && \
     nix-build nix/r-share.nix      -o /out-rshare  && \
     nix-build nix/r-shared.nix     -o /out-rshared && \
     nix-store -qR /out-system /out-rshare /out-rshared | sort -u > /closure
@@ -52,7 +52,7 @@ COPY --from=build /out-system /opt/system
 COPY --from=build /out-rshare  /opt/rshare
 COPY --from=build /out-rshared /opt/rshared
 
-# system.nix already carries R, fontconfig, the locales and the fonts.
+# system-runtime.nix already carries R, fontconfig, the locales and the fonts.
 ENV PATH="/opt/system/bin:${PATH}" \
     LOCALE_ARCHIVE="/opt/system/lib/locale/locale-archive" \
     LANG="en_US.UTF-8" \
@@ -77,7 +77,7 @@ COPY shared/ /app/shared/
 # with an explicit HOME is the portable choice. Everything R writes goes to
 # /tmp, which docker-compose.prod.yml declares as a tmpfs; HOME points there
 # so fontconfig, bslib and Shiny's session files have somewhere to land.
-# curl is used by the healthcheck and comes from nix/system.nix (/opt/system),
+# curl is used by the healthcheck and comes from nix/system-runtime.nix (/opt/system),
 # not from /root/.nix-profile, which a non-root user cannot traverse.
 ENV HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache

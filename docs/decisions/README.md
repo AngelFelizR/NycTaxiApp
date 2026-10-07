@@ -81,7 +81,7 @@ Decisions the master document does not make, or makes differently.
 | [`0005-push-the-card-payload.md`](0005-push-the-card-payload.md) | §5.6, §5.10 (differs) | The API pushes the card payload to `share/` instead of `share` calling back into the request that is waiting for it |
 | [`0006-response-schema-conformance.md`](0006-response-schema-conformance.md) | §10 | Response bodies are validated against `contract/openapi.yaml` with ajv, not with a checker we wrote |
 | [`0007-both-services-are-packages.md`](0007-both-services-are-packages.md) | §10, §1.1, §6.2 (differs) | `api/` and `app/` are R packages: flat `R/`, installed in production, `load_all()` in development |
-
+| [`0008-runtime-system-layer.md`](0008-runtime-system-layer.md) | §1.1, §8.6 | Images build a system layer without `nix` (−244 MB); the other 1.34 GB lives inside R and is left alone |
 ## Execution still pending
 
 Not decisions — work. Everything external to this repository is in

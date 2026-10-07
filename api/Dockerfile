@@ -11,7 +11,7 @@
 # The pin matters: nix/pkgs-api.nix is nixpkgs 2025-12-02 with R 4.5.2, the
 # environment the models were trained in. Building the API against the UI's
 # pin (4.6.1) would change nothing here but is not what was validated, so
-# both system.nix and r-api.nix are instantiated against pkgs-api.nix.
+# both system-runtime.nix and r-api.nix are instantiated against pkgs-api.nix.
 #
 # nix/r-api.nix deliberately carries no testthat: this file is the image's
 # layer and no deployment runs a test.
@@ -30,7 +30,9 @@ RUN printf '%s\n' \
 WORKDIR /build
 COPY nix/ ./nix/
 
-RUN nix-build -E '(let pkgs = import ./nix/pkgs-api.nix; in import ./nix/system.nix { inherit pkgs; })' -o /out-system && \
+# system-runtime.nix, not system.nix: the image never runs nix and the CLI
+# was 206 MB of it (ADR-0008).
+RUN nix-build -E '(let pkgs = import ./nix/pkgs-api.nix; in import ./nix/system-runtime.nix { inherit pkgs; })' -o /out-system && \
     nix-build nix/r-api.nix -o /out-rapi && \
     nix-store -qR /out-system /out-rapi | sort -u > /closure
 
@@ -86,7 +88,7 @@ RUN mkdir -p /opt/r-lib \
 # with an explicit HOME is the portable choice. Everything R writes goes to
 # /tmp, which docker-compose.prod.yml declares as a tmpfs; HOME points there
 # so fontconfig, bslib and Shiny's session files have somewhere to land.
-# curl is used by the healthcheck and comes from nix/system.nix (/opt/system),
+# curl is used by the healthcheck and comes from nix/system-runtime.nix (/opt/system),
 # not from /root/.nix-profile, which a non-root user cannot traverse.
 ENV HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache

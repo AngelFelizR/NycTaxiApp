@@ -143,12 +143,26 @@ Same shape, plus:
 
 ---
 
-## Plan B — R7: image size
+## Plan B — R7: image size — **safe part done** (ADR-0008)
 
-`nix/system-runtime.nix` without `nix`, the toolchain or `glibc-locales` for
-the runtime images: **ADR-0008**, roughly −2 GB per image (openjdk 572 MB,
-source 482 MB, gfortran 338 MB, gcc 283 MB, locales 222 MB, python3 143 MB).
-Then rebuild the three images and re-run the smoke stack.
+Measured first, and the premise did not survive it: `nix/system.nix` declares
+ten packages, and the toolchain is inside **`R`'s own output** (`openjdk`,
+`gfortran`, `gcc`, `python3` are R's `buildInputs`), not in that expression.
+Splitting a Nix expression cannot reach it.
+
+- **Done:** the three images build `nix/system-runtime.nix` = `system.nix`
+  minus `nix` → closure 2608 → 2364 MB, **images −70 MB each** (share
+  4.3 → 4.23, api 4.9 → 4.83, shiny 5.32 → 5.22; the closure figure is an
+  upper bound because per-path `du` double-counts hard links). Rebuilt and
+  smoked: every image carries an installed `taxiapi`/`taxiapp` and
+  `smoke-stack.sh` passes.
+- **Rejected, recorded in ADR-0008:** rewriting R with `removeReferencesTo`
+  for the remaining 1.34 GB (owning a custom R derivation, revalidating
+  `R CMD INSTALL` and R's startup, and `gcc` removal breaking any future
+  compiled package — §1.1 limits RAM, not image size); dropping fonts from the
+  API image (≈76 MB, but a test/prod asymmetry no test exercises).
+- **AGENTS corrected** — the old "~2 GB from system.nix" claim was never
+  measured.
 
 ---
 

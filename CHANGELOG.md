@@ -342,7 +342,25 @@ goes where.
   `middleware_cors.R`. The per-file bar is reported but not enforced until
   those are agreed; the global one is.
 
+- **The deployment images build `nix/system-runtime.nix`** (ADR-0008):
+  `nix/system.nix` minus `nix`, which the base image already provides and no
+  container ever runs. Measured on the API pin the closure goes 2608 -> 2364
+  MB (-244 MB), and the images themselves lose about 70 MB each (share
+  4.3 -> 4.23 GB, api 4.9 -> 4.83, shiny 5.32 -> 5.22): summing `du` per store
+  path double-counts hard links, so the closure figure is an upper bound.
+  Development shells keep `system.nix` — a shell is where
+  you run `nix` — and the two differ by an unused binary rather than by a
+  behaviour, so there is no test/prod asymmetry.
+
 ### Changed
+- **AGENTS' "Peso de las images" section was wrong and is now measured.** It
+  said the ~2 GB of toolchain "vienen de `nix/system.nix`" and that splitting
+  that expression would recover it. The expression declares ten packages and
+  closes at 2608 MB; the toolchain is inside **`R`'s own output**, which
+  references `openjdk`, `gfortran`, `gcc` and `python3` because they are its
+  `buildInputs`. Separating a Nix expression cannot remove it — the record of
+  why that is not worth doing is ADR-0008.
+
 - **`app/R/modules/` is gone.** §6.2 of the master document draws that
   directory, and an R package cannot have one: R ignores subdirectories of
   `R/`, which is exactly why the modules had to move. Annotated here; the
