@@ -42,14 +42,18 @@ la precedencia de §3.10. **Servicio `share/` hecho** (ver su sección): las 3
 rutas de `contract/share.openapi.yaml`, 150 assertions y arranque verificado.
 **Fase 6 entera hecha:** `mod_share` (Download PNG / Copy link / X /
 LinkedIn + el segundo prompt de email de §6.5) montado en `mod_results`,
-`api_share_email` y el mock de `/share-email`. **Fase 7 (config) hecha:** ver su
-sección — `docker-compose.prod.yml`, `infra/`, los3 Dockerfiles multi-stage,
-los3 `default.prod.nix` y `.github/workflows/ci.yml`, todo validado pero
-**sin build ni despliegue reales**. **Hecho tras la 7:** `docs/operations/runbook.md` (§8.8, 6 procedimientos)
-e `integration/` (ya no está vacío: 57 assertions contrato↔rutas↔clientes).
-**Pendiente:** el SMTP/SPF/DKIM del envío real,
-`docs/investigation-phases/` (fase 9), el build real de imágenes + despliegue
-en la VM + Cloudflare + UptimeRobot, y las fases 8-9.
+`api_share_email` y el mock de `/share-email`. **Fase 7 hecha:** ver su sección —
+`docker-compose.prod.yml`, `infra/`, los3 Dockerfiles multi-stage, los3
+`default.prod.nix`, `.github/workflows/ci.yml`, **y las tres imágenes
+construidas de verdad y smoke-testeadas**. **Hecho tras la 7:**
+`docs/operations/runbook.md` (§8.8), `docs/operations/first-deploy.md`
+(checklist de lo que vive fuera del repo), `integration/` (62 assertions) y
+el **aviso de privacidad** (`app/www/privacy.html`, §9.1, obligatorio antes de
+publicar) enlazado desde Setup, el footer y el modal de email.
+**Pendiente — solo cosas externas:** credenciales SMTP reales + registros
+SPF/DKIM/DMARC, secretos de GitHub para desplegar en la VM, la regla de caché
+y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
+(ver "Bloqueos del primer despliegue"). Después, fases 8 y 9.
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -180,13 +184,19 @@ en la VM + Cloudflare + UptimeRobot, y las fases 8-9.
   única forma es `session$ns(...)` — `ns` no existe ahí y falla en runtime.
 - El `.Rprofile` (guardas de Nix que bloquean `install.packages()`) está en la
   raíz y R solo lo carga si el cwd es la raíz.
+- **`app/www/privacy.html`** (§9.1, obligatorio antes de publicar): página
+  estática, sin JS, enlazada desde el bloque de email de `Setup`, desde el
+  `footer` de `page_navbar` y desde el modal de email de `mod_share`. Es la
+  única página de `www/` que no puede leer `shared/brand.yaml`, así que el
+  hex va literal con un comentario. `test-privacy.R` (22 assertions) la
+  obliga a cubrir los seis puntos de §9.1 y a que los tres enlaces existan.
 
 ## Comandos (cwd = `app/` salvo indicación)
 - Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` →
-  **225 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
+  **247 PASS** (unit + flujo). NO `test_check()`/`devtools::test()`: no es un
   paquete instalado; `helper-load.R` hace `source()` a mano de todo `R/*.R` y
   `R/modules/*.R` (el orden importa). En el shell **raíz** salen
-  **173 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
+  **195 PASS + 1 SKIP**: ese shell no lleva `test-tools.nix`, así que el test
   de flujo se salta con un mensaje que apunta al shell correcto.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - Tests del **cliente** API sin servidor: `httr2::with_mocked_responses()`
@@ -200,7 +210,7 @@ en la VM + Cloudflare + UptimeRobot, y las fases 8-9.
   escucha en `SHARE_PORT` (8020) e imprime la URL base y el RSS.
 - Tests de **integración** (cwd = `integration/`, en el shell **raíz**):
   `nix-shell ../default.nix -A shell --run "Rscript tests/testthat.R"` →
-  **57 PASS**. No necesita ningún servicio: son las tres descripciones del
+  **62 PASS**. No necesita ningún servicio: son las tres descripciones del
   sistema (contrato ↔ rutas registradas ↔ caminos de los clientes) mirándose
   una a la otra.
 - Test de flujo (`test-shinytest2.R`, fases 4-6): levanta `dev/mock_api.R` en un
@@ -417,8 +427,9 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
 
 ## Fase 7: infra y despliegue (§1.0, §1.1, §8)
 
-**Todo esto está escrito y validado, pero NINGUNA imagen se ha construido ni
-nada se ha desplegado.** Lo que sigue es lo que existe y cómo se verificó.
+**Las tres imágenes se han construido y arrancan** (ver "Las imágenes, de
+verdad"). Nada se ha desplegado todavía: eso necesita los secretos de GitHub y
+la VM. Lo que sigue es lo que existe y cómo se verificó.
 
 - **`docker-compose.prod.yml` (raíz) es un fichero INDEPENDIENTE**, no un
   override. Compose **suma** `ports:` y `networks:` al apilar ficheros, así
@@ -467,7 +478,42 @@ nada se ha desplegado.** Lo que sigue es lo que existe y cómo se verificó.
 - **`api|app|share/default.prod.nix`** (las variantes que faltaban) y
   **`.dockerignore`**.
 
+### Las imágenes, de verdad
+
+Construidas en el host con `docker build -f <svc>/Dockerfile .` (el contenedor
+de desarrollo **no** lleva Docker; ahí solo hay sshd y el repo montado):
+
+| Imagen | Tamaño | Arranque verificado |
+|---|---|---|
+| `ghcr.io/angelfelizr/nyc-taxi-share:test` | 4,3 GB | `Listening … RSS 199 MB` (límite de §1.1: 256 MB), `/health` 200, `/share/<junk>` 503 JSON |
+| `ghcr.io/angelfelizr/nyc-taxi-api:test` | 4,9 GB | `Listening … RSS 373 MB`; sin modelos/DB/Redis degrada con mensajes en vez de morir (warmup en `tryCatch`) |
+| `ghcr.io/angelfelizr/nyc-taxi-shiny:test` | 5,32 GB | `Listening on :3838`, `GET /` 200 y **`GET /privacy.html` 200 con el enlace presente dos veces** (Setup + footer) |
+
+- Los builds tardan ~10 min (share), ~45 min (api) y ~15 min (app) porque el
+  store del contenedor de build está vacío y **compila los paquetes R desde
+  source**: el cache de `rstats-on-nix.cachix.org` no cubre este pin. El caché
+  de BuildKit lo amortiza entre runs.
+- El `app` arrancando es también la prueba de que `shared/load.R` se resuelve
+  dentro de la imagen: sin `shared/` las `label_curve_*` de `strings.R`
+  fallarían antes del primer `Listening`.
+
+### Peso de las imágenes (seguimiento, no bloquea)
+
+~2 GB de cada imagen es toolchain que un runtime no necesita: `openjdk` 572 MB,
+`source` 482 MB, `gfortran` 338 MB, `gcc` 283 MB, `glibc-locales` 222 MB,
+`python3` 143 MB. Vienen de `nix/system.nix`, que incluye `pkgs.nix` y la
+toolchain que `R` arrastra. §1.1 limita la **RAM** (256 MB / 1,5 GB), no el
+tamaño de imagen, así que esto no incumple nada — pero separar un
+`nix/system-runtime.nix` (sin `nix`, sin toolchain) para las imágenes bajaría
+cada una ~2 GB y haría los push de GHCR bastante más rápidos.
+
 ### Bloqueos del primer despliegue (fuera de este repo)
+
+**Todo lo demás que no puede hacerse desde aquí está en
+`docs/operations/first-deploy.md`**: secretos de GitHub, la VM, DNS
+(SPF/DKIM/DMARC), la regla de caché de Cloudflare y el monitor de
+disponibilidad — con qué crearlo y cómo verificarlo. Dos bloqueos viven en el
+propio repo, en el release de datos:
 
 - El release **`v0.0.1-data` no publica `SHA256SUMS`** → `fetch-assets.sh`
   aborta siempre. Es lo que §4.5 pide, pero hay que subir el manifiesto
@@ -479,11 +525,12 @@ nada se ha desplegado.** Lo que sigue es lo que existe y cómo se verificó.
 
 ### No ejecutable desde aquí
 
-Construir y pushear imágenes (lo hace CI), desplegar en la VM (faltan los
-secretos `VM_HOST`, `VM_USER`, `VM_SSH_KEY`), la regla de caché de
-`/share/*.png` en Cloudflare y los registros SPF/DKIM/DMARC (dashboard), el
-monitor de disponibilidad, el swap de 2 GB de la VM (§1.1) y
-`docs/operations/runbook.md` (§8.8, ya creado).
+Las imágenes se construyen localmente (arriba), pero **pushearlas a GHCR es
+tarea de CI**; desplegar en la VM necesita los secretos `VM_HOST`, `VM_USER` y
+`VM_SSH_KEY`; la regla de caché de `/share/*.png`, los registros SPF/DKIM/DMARC
+y el monitor de disponibilidad viven en dashboards; y el swap de 2 GB de la VM
+(§1.1) es un ajuste de la consola de Oracle. Todos ellos, con qué crearlos y
+cómo verificarlos, están en `docs/operations/first-deploy.md`.
 
 ### Anotación sobre §1.0
 
@@ -495,7 +542,9 @@ Se interpreta como "no es un cliente de la API". Divergencia anotada en
 
 ### Seguimiento pendiente
 
-`nix/r-shiny.nix` sigue metiendo `shinytest2` en el set de runtime, así que
+- **Peso de las imágenes:** ver "Peso de las imágenes" arriba (~2 GB de
+  toolchain por imagen que un runtime no usa).
+- `nix/r-shiny.nix` sigue metiendo `shinytest2` en el set de runtime, así que
 la imagen de la UI lo arrastra (el navegador no: `chromium` vive en
 `nix/test-tools.nix`). Moverlo ahí exige rehacer `app/default.dev.nix`; lo
 mismo aplica a `plumber2`, que la app solo usa en `dev/mock_api.R`.

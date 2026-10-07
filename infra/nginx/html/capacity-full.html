@@ -1,0 +1,125 @@
+<!doctype html>
+<!--
+  capacity-full.html -- section 8.2.
+
+  Served by Nginx whenever an upstream answers 503: ShinyProxy out of seats,
+  or share/api temporarily down. It must (a) show something worth watching,
+  (b) capture the email while the visitor is here, and (c) get out of the way
+  by itself.
+
+  The demo clip: drop a 60-90 s mp4 at infra/nginx/demo.mp4. The document root
+  is the whole infra/nginx/html directory, so no compose change is needed.
+
+  This is the one static page that cannot read shared/brand.yaml, so the
+  primary colour is written out. Keep it in sync with shared/brand.yaml.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Re-evaluate the situation every minute: when a seat frees up the visitor
+     is back on the app without having to do anything. -->
+<meta http-equiv="refresh" content="60">
+<title>At capacity &middot; NYC Taxi Decision Simulator</title>
+<style>
+  :root {
+    --primary: #6d5dfc;
+    --primary-dark: #5a4be0;
+    --ink: #1f2328;
+    --muted: #64748b;
+    --line: #e3e6ea;
+    --bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 34rem; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 8px; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .demo {
+    aspect-ratio: 16 / 9; background: #16171d; display: flex;
+    align-items: center; justify-content: center; padding: 24px;
+    text-align: center; color: #e6e6ea; font-size: .95rem;
+  }
+  .demo video { width: 100%; height: 100%; object-fit: contain; }
+  .body { padding: 20px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  input[type=email] {
+    flex: 1 1 12rem; min-width: 0; padding: 12px; font-size: 1rem;
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  button {
+    padding: 12px 20px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    background: var(--primary); color: #fff; border: 0; border-radius: 10px;
+  }
+  button:hover { background: var(--primary-dark); }
+  #msg { min-height: 1.4em; margin-top: 10px; font-size: .95rem; }
+  #msg.ok { color: #0a5c2b; }
+  #msg.err { color: #8b1a1a; }
+  footer { margin-top: 24px; font-size: .85rem; color: var(--muted); }
+  footer a { color: var(--primary); }
+</style>
+</head>
+<body>
+<main>
+  <h1>All the cabs are out</h1>
+  <p class="lead">
+    Ten drivers are on a simulated shift at the same time and every seat is
+    taken. This page reloads itself every minute, so keep it open.
+  </p>
+
+  <div class="card">
+    <div class="demo">
+      <!-- Drop infra/nginx/demo.mp4 in to play the clip here. -->
+      <p>A 60&ndash;90 second run of a simulated day goes here.</p>
+    </div>
+    <div class="body">
+      <form id="waitlist" novalidate>
+        <input type="email" id="email" name="email" required
+               placeholder="you@example.com" autocomplete="email"
+               aria-label="Email address">
+        <button type="submit">Notify me when there's room</button>
+      </form>
+      <p id="msg" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <footer>
+    Playing now: <a href="/">NYC Taxi Decision Simulator</a>.
+    Waitlist signups are limited to five per address per day.
+  </footer>
+</main>
+
+<script>
+// A plain HTML form would post application/x-www-form-urlencoded, and
+// /waitlist only accepts JSON (contract/share.openapi.yaml), so the submit
+// is fetched instead of navigating away from this page.
+document.getElementById('waitlist').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var msg = document.getElementById('msg');
+  var email = document.getElementById('email').value.trim();
+  msg.className = ''; msg.textContent = 'Sending…';
+  fetch('/waitlist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email })
+  }).then(function (r) {
+    return r.json().then(function (b) {
+      if (!r.ok) throw new Error(b.message || 'Something went wrong.');
+      msg.className = 'ok';
+      msg.textContent = b.message || "You're on the list.";
+    });
+  }).catch(function (err) {
+    msg.className = 'err';
+    msg.textContent = err.message || 'Could not reach the waitlist.';
+  });
+});
+</script>
+</body>
+</html>

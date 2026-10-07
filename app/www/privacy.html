@@ -1,0 +1,172 @@
+<!doctype html>
+<!--
+  Privacy notice -- section 9.1, "obligatorio antes de publicar".
+
+  Served by Shiny from app/www/, so it is a plain static page: no JavaScript,
+  no framework, readable at 390 px and printable. It is linked from the Setup
+  email block, from the footer of every screen, and from the result-card form.
+
+  This is the one page in app/www that cannot read shared/brand.yaml, so the
+  primary colour is written out. Keep it in sync with shared/brand.yaml.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Privacy notice &middot; NYC Taxi Decision Simulator</title>
+<style>
+  :root {
+    --primary: #6d5dfc;
+    --ink: #1f2328;
+    --muted: #64748b;
+    --line: #e3e6ea;
+    --bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 42rem; margin: 0 auto; padding: 28px 16px 56px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 28px 0 8px; }
+  .updated { color: var(--muted); font-size: .85rem; margin: 0 0 24px; }
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  p { margin: 0 0 12px; }
+  ul { margin: 0 0 12px; padding-left: 1.2rem; }
+  li { margin-bottom: 6px; }
+  strong { font-weight: 650; }
+  a { color: var(--primary); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .9em; background: var(--bg); padding: .1em .35em;
+    border-radius: 4px;
+  }
+  footer { margin-top: 28px; font-size: .85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Privacy notice</h1>
+    <p class="updated">Last updated: 6 October 2026</p>
+
+    <p>
+      NYC Taxi Decision Simulator is a demonstration: you play a simulated
+      eight-hour shift as an NYC taxi driver, and the result can be shared.
+      This page explains what that stores, why, for how long, and how to have
+      it removed. It is deliberately short; if something here is unclear,
+      write to us and we will explain it.
+    </p>
+
+    <h2>What we store</h2>
+    <ul>
+      <li>
+        <strong>Your decisions in the simulation</strong> — which rides you
+        accepted or rejected, and where. These are the game itself and are
+        never linked to anything that identifies you.
+      </li>
+      <li>
+        <strong>Your email address</strong> — only if you type one. It is
+        optional at every step and there is no way to play without one.
+      </li>
+      <li>
+        <strong>Your name</strong> — only if you give it, and only for the same
+        purposes as the email.
+      </li>
+      <li>
+        <strong>A hash of your IP address</strong> — SHA-256 of your address
+        mixed with a secret salt we keep. We use it to limit abuse (a few
+        sign-ups per day per connection). <em>The plain IP address is never
+        written down</em>, not in the database, not in Redis, not in logs.
+      </li>
+      <li>
+        <strong>Whether you consented</strong> to receiving your result card and
+        to being contacted about Data Science services, as two separate flags.
+      </li>
+    </ul>
+
+    <h2>Why we store it</h2>
+    <ul>
+      <li>To let you <strong>resume a day</strong> you started.</li>
+      <li>To <strong>send you your result card</strong> if you asked for it.</li>
+      <li>
+        To <strong>contact you about Data Science services</strong> — only if
+        you ticked that box, which starts unticked and is entirely optional.
+        Saying no costs you nothing in the product.
+      </li>
+      <li>To <strong>keep the demo fair</strong>: rate limits, and aggregated
+        statistics such as how a simulated day compares with the model.</li>
+    </ul>
+    <p>
+      We do not sell data, we do not run advertising, and there are no
+      third-party analytics or tracking pixels on this site.
+    </p>
+
+    <h2>Cookies and local storage</h2>
+    <p>
+      <strong>There are no tracking cookies.</strong> The site uses
+      <code>localStorage</code> for two working features: the resume code that
+      gets you back into an unfinished day, and remembering that you have
+      already seen the introduction. Clearing your browser storage removes
+      both, and only those.
+    </p>
+
+    <h2>How long we keep it</h2>
+    <ul>
+      <li>
+        <strong>Simulations and decisions</strong> are kept indefinitely once
+        they no longer point at anybody, because their value is aggregate.
+      </li>
+      <li>
+        <strong>Email and name</strong> are kept until you ask us to delete
+        them.
+      </li>
+      <li>
+        <strong>Backups</strong> are rotated every 28 days, so a deletion
+        reaches every copy within a month at most.
+      </li>
+      <li>
+        <strong>Waitlist addresses</strong> stay until the list is served or
+        you ask us to remove them.
+      </li>
+    </ul>
+
+    <h2>Who touches it</h2>
+    <p>
+      The application runs on our own server; your result card is rendered
+      behind Cloudflare, which sees your request as any content delivery
+      network does. If you choose to share your result on X or LinkedIn, that
+      happens in your browser and their terms apply to the link you post.
+      Emails are sent through a transactional mail provider, which sees your
+      address and nothing else.
+    </p>
+
+    <h2>Ask us to delete your data</h2>
+    <p>
+      Write to
+      <a href="mailto:angel.esteban.feliz@gmail.com?subject=Data%20deletion%20request">angel.esteban.feliz@gmail.com</a>
+      from the address you used, or quote the address you used, with
+      &ldquo;Data deletion request&rdquo; in the subject. We clear your email,
+      name and marketing consent, and remove you from the waitlist if you are
+      on it. The simulations stay, anonymised. We aim to answer within 30 days
+      and will confirm when it is done.
+    </p>
+
+    <h2>Questions</h2>
+    <p>
+      The same address works for anything else about this notice:
+      <a href="mailto:angel.esteban.feliz@gmail.com">angel.esteban.feliz@gmail.com</a>.
+    </p>
+  </div>
+
+  <footer>
+    <a href="./">&larr; Back to the simulator</a>
+  </footer>
+</main>
+</body>
+</html>

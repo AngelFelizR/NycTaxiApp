@@ -149,6 +149,47 @@ service at once.
   requires that difference to be exactly that pair, so it fails the moment
   someone implements them or drops them from the contract.
 
+- **The three phase-7 images were actually built and smoke-tested**, which
+  closes the last item on the phase-7 deliverable list:
+  - `nyc-taxi-share` 4.3 GB -- starts, `/health` answers 200 with
+    `redis: unavailable` (fail-open, by design), an unknown token answers 503
+    JSON because no API is reachable, and **RSS is 199 MB against §1.1's
+    256 MB limit**.
+  - `nyc-taxi-api` 4.9 GB -- `Listening … RSS 373 MB`, and with no models, no
+    dataset, no Postgres and no Redis it degrades with readable messages
+    instead of dying, which is what the `tryCatch` warmup is for.
+  - `nyc-taxi-shiny` 5.32 GB -- `Listening on :3838`, `GET /` 200, and
+    **`GET /privacy.html` 200 with the link present twice** (Setup and the
+    footer). It starting is also the proof that `shared/load.R` resolves
+    inside the image: without `shared/`, `strings.R` would fail before the
+    first `Listening`.
+  Builds take ~10/45/15 minutes because a fresh build store compiles the R
+  packages from source -- the `rstats-on-nix.cachix.org` cache does not cover
+  these pins. BuildKit's cache amortises it between runs.
+- **`app/www/privacy.html` (§9.1), mandatory before publishing and previously
+  404.** The Setup email block has linked to it since phase 4, so the notice
+  the document requires simply did not exist. It is a static, script-free page
+  covering the six points §9.1 lists (what is stored, what for, localStorage
+  vs cookies, retention, who touches it, how to ask for erasure), linked from
+  Setup, from a new `footer` on `page_navbar` and from `mod_share`'s email
+  modal -- the three places §9.1 asks for. `test-privacy.R` (22 assertions)
+  fails if any of the six goes missing or any of the links goes away.
+- **`.env.example` now documents every variable the services read.** It was
+  missing `SMTP_FROM`, `SMTP_STARTTLS`, `SHARE_URL`, `SHARE_HOST/PORT`,
+  `SHARED_DIR`, `TAXI_MODELS_DIR`, `TAXI_DATA_DIR`, `API_HOST/PORT`,
+  `API_TRACE` and `API_EXPERIMENTS_SYNC` -- nine of them would have been
+  discovered by reading the source. An integration test now scans `api/R`,
+  `app/R`, `share/R` and `tools/` for `Sys.getenv()` and fails when a variable
+  is read but undocumented, or documented but unread.
+- **`docs/operations/first-deploy.md`**: the checklist for everything that
+  cannot be done from inside the repository -- GitHub secrets, the VM (swap,
+  directory layout, cron), the DNS records (SPF, DKIM, DMARC with example
+  values), the Cloudflare cache rule for `/share/*.png`, the availability
+  monitor, and the post-deploy smoke test. It also spells out the two release
+  gaps that make the first deploy abort by design.
+- Redundant `.gitkeep` files removed from every directory that has content;
+  only `docs/investigation-phases/` keeps one.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -369,6 +410,15 @@ service at once.
   the value in its environment the injected one comes out empty and every
   request from the UI would 403, so it is read as "ShinyProxy is not an API
   client". Annotated here rather than corrected in the master document.
+
+- **Images are ~4.3-5.3 GB each because `nix/system.nix` carries toolchain a
+  runtime never uses**: `openjdk` 572 MB, a source tree 482 MB, `gfortran`
+  338 MB, `gcc` 283 MB, `glibc-locales` 222 MB, `python3` 143 MB. §1.1 limits
+  RAM, not image size, so nothing is violated -- but a
+  `nix/system-runtime.nix` without `nix` and without the compiler would cut
+  roughly 2 GB per image and make GHCR pushes much faster. Recorded as a
+  follow-up rather than changed here: `system.nix` is the layer every image
+  and every shell shares.
 
 ### Fixed
 

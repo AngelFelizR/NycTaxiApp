@@ -12,6 +12,11 @@
 *.pdf
 _site/
 !docs/**/*.html
+# ...but these HTML files are served at runtime, not produced by a build:
+# the privacy notice (9.1) and Nginx's capacity page (8.2). Without this they
+# are silently dropped and a fresh checkout 404s them.
+!app/www/**/*.html
+!infra/nginx/**/*.html
 
 # Project data (large, not for Git)
 .vscode/

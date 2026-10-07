@@ -50,6 +50,13 @@ ui <- page_navbar(
   nav_panel(nav_results, value = "results", mod_results_ui("results")),
   nav_spacer(),
   nav_item(input_dark_mode(id = "modo"))
+,
+  # 9.1: the privacy notice has to be reachable from Setup, the footer and the
+  # email form. page_navbar's `footer` renders under every panel, so this one
+  # link covers the whole product.
+  footer = div(class = "text-center text-muted small py-2",
+    tags$a(label_privacy, href = "privacy.html", target = "_blank",
+           rel = "noopener"))
 )
 
 server <- function(input, output, session) {

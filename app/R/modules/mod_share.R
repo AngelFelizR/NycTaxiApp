@@ -121,6 +121,9 @@ mod_share_server <- function(id, estado) {
           title = label_share_email_title,
           p(class = "mb-2", label_share_email_help),
           textInput(session$ns("email_addr"), label_share_email, value = ""),
+          p(class = "mb-0 small",
+            tags$a(label_privacy, href = "privacy.html", target = "_blank",
+                   rel = "noopener")),
           footer = tagList(
             actionButton(session$ns("send"), btn_share_email_send, type = "primary"),
             modalButton(btn_share_email_close)
