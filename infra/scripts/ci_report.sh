@@ -5,6 +5,9 @@
 # otherwise undiagnosable from outside the repository. Annotations are public:
 # they show up in the check run and can be fetched with
 #   GET /repos/{owner}/{repo}/check-runs/{id}/annotations
+# The tail of the log also goes into the step summary, which is readable on
+# the run page.
+#
 # Usage: ci_report.sh <log-file> [job-title]
 set -u
 
@@ -19,18 +22,44 @@ emit() {
   printf '::error title=%s::%s\n' "$title" "$esc"
 }
 
-# testthat's own vocabulary first; then anything that looks like a crash.
-matches=$(grep -E \
-  '^\[ FAIL [1-9]|^── (Failure|Error)|^Error( in)?: |^ERROR|^Execution halted|command not found|error: ' \
-  "$log" | head -40)
-
-if [ -z "$matches" ]; then
-  # No test output to point at -- the shell or the build itself failed.
-  matches=$(tail -20 "$log")
+# 1. testthat's own reporting first: every Failure/Error block, with enough
+#    following lines to see what it was. `head -40` alone used to fill up with
+#    repeated fontconfig noise and drop these.
+blocks=$(grep -A6 -E '^── (Failure|Error) \(' "$log" 2>/dev/null)
+if [ -n "$blocks" ]; then
+  while IFS= read -r line; do
+    case $line in
+      # strip testthat's box-drawing prefix so the annotation reads as text
+      "  "*) line=${line#"  "} ;;
+      "── "*) line=${line#── } ;;
+    esac
+    [ -n "$line" ] && emit "$line"
+  done <<< "$blocks"
+  # and the summary line, which carries the counts
+  grep -E '^\[ FAIL [1-9]' "$log" | tail -1 | while IFS= read -r line; do
+    emit "$line"
+  done
+else
+  # 2. Nothing that looks like a test failure: the shell or the build died.
+  matches=$(grep -E \
+    '^\[ FAIL [1-9]|^Error( in)?: |^ERROR|^Execution halted|command not found|^error: ' \
+    "$log" | head -30)
+  if [ -z "$matches" ]; then
+    matches=$(tail -20 "$log")
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] && emit "$line"
+  done <<< "$matches"
 fi
 
-while IFS= read -r line; do
-  [ -n "$line" ] && emit "$line"
-done <<< "$matches"
+# Step summaries are public on the run page; this is the fallback for anything
+# the annotations above could not express.
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  {
+    printf '### %s — last 60 lines\n\n```\n' "$title"
+    tail -60 "$log"
+    printf '```\n'
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
 
 exit 0
