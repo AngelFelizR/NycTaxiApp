@@ -276,6 +276,23 @@ goes where.
   attachment. Section 5.6 says the promise of "you will receive your card by
   email" is real; now something proves it.
 
+- **`infra/scripts/health_check.sh`**: the private services are no longer
+  unmonitored. Section 8.1's external monitor watches the landing page of
+  ShinyProxy, which does not depend on the API -- so a dead database kept a
+  green dashboard while the first visitor to press "Validate" found out. This
+  probes `/health` on api and share, `pg_isready` and `redis-cli ping`, from
+  the host, and mails through the same SMTP path as `disk_check.sh` with a 6 h
+  cooldown. A green run clears the cooldown so the next incident alerts.
+- **`disk_check.sh` now also watches the backups.** Nothing else notices when
+  cron stops running: a missing dump is invisible until someone needs one. It
+  fails if there is no dump or if the newest is older than 25 h, and both
+  problems are reported together rather than one at a time.
+- **Section 11's structured request log.** One JSON line per request with
+  `method`, `path`, `status`, `duration_ms`, `correlation_id` and `ip_hash`,
+  and no clear IP anywhere in it. `X-Request-Id` is accepted from the edge and
+  generated otherwise; Nginx's own log line carries `$request_id` alongside
+  `rt=`.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -587,6 +604,30 @@ goes where.
 - `fetch_share_png()`'s catch swallowed every reason for failing, so the only
   clue was a bare "PNG fetch failed". The replacement logs the transport
   error, the upstream status and the body.
+
+- **The per-request line cannot be built with plumber2's `access_log_format`.**
+  That format is a cli/glue template: it substitutes `{...}` and then runs the
+  result through cli again, so any value containing a brace -- which every JSON
+  object does -- is parsed as an R expression. Three different formats were
+  tried and all three killed the server on the first request with
+  "Could not parse cli `{}` expression". The logger receives the response and
+  the request, so the line is `sprintf`'d in R instead, and the format is left
+  as the single token `STATUS={response$status}`, which is also the only place
+  the final status is reliably available (`res` and `request$response` were
+  both observed to lag: a 404 logged as 200, and a stale 404 on a 200).
+  `correlation_id` is formatted from the clock rather than computed with
+  `as.numeric(Sys.time()) * 1e6 %% 1e9`: a double does not carry 15+6 digits,
+  so consecutive requests collided on the same id.
+- Nginx logs `$request_id` and passes it as `X-Request-Id`. **The Shiny app
+  does not forward it yet**, so the edge id and the API's `correlation_id` are
+  two separate chains today; the header is in place for when it does.
+
+- `disk_check.sh` sent its alert with `curl -H "Subject: ..."`, and curl
+  prepends those headers to the upload **without a blank line** -- so the body
+  looked like a continuation of the Subject and the server answered
+  `451 4.3.5 malformed header line`. The disk alert had never actually been
+  deliverable. The whole RFC822 message now goes in the upload instead, and
+  `health_check.sh` was written the same way from the start.
 
 ### Fixed
 

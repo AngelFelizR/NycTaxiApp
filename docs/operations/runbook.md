@@ -225,6 +225,35 @@ explicit fallback, not something to guess at mid-incident — see ADR-016.
 
 ---
 
+## Incident: the public monitor is green but the API is dead
+
+**Symptom:** the uptime monitor shows the site up, and every visitor gets an
+error the moment they press *Validate*.
+
+**Diagnosis:** the monitor of section 8.1 watches
+`https://nyctaxiapp.angelfeliz.com/`, which is ShinyProxy's landing page -- and
+that page does not depend on the API. A dead database, a failed model load or
+a wedged API leave it green. That gap is why `health_check.sh` exists: it
+probes `/health` on api and share, `pg_isready` and `redis-cli ping` from the
+host, where those addresses are reachable.
+
+```sh
+./infra/scripts/health_check.sh; echo "exit=$?"
+tail -20 /var/log/nyctaxi-health.log
+```
+
+`/health` answers **503** when the database or any of the models is missing,
+which is deliberate: it is the difference between "the API is running" and
+"the product works".
+
+**Fix:** restore whichever of the four failed, then
+`./infra/scripts/health_check.sh` must exit 0.
+
+**Prevention:** the hourly cron. A green run clears the alert cooldown, so the
+next incident mails immediately instead of waiting six hours.
+
+---
+
 ## Incident: the API is up but every day stays in `setup`
 
 **Symptom:** `POST /experiments` answers 201 and `GET
@@ -299,6 +328,10 @@ credentials means a database incident cannot take the card down with it.
 Not incidents — things worth doing on a quiet day:
 
 ```sh
+# The four things the product cannot work without. Cron runs this hourly and
+# mails when one fails (section 11: "alertas minimas" -- no Prometheus here).
+./infra/scripts/health_check.sh; echo "exit=$?"
+
 # Exposure: only nginx may publish a port (§9.3, and the deploy smoke test).
 docker ps --format '{{.Names}} {{.Ports}}'
 

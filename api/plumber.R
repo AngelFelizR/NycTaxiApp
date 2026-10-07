@@ -90,6 +90,7 @@ for (rel in c(
   "R/ml/simulate.R",
   "R/ml/outcome.R",
   "R/middleware/internal_auth.R",
+  "R/middleware/request_context.R",
   "R/middleware/client_ip.R",
   "R/middleware/rate_limit.R",
   "R/middleware/cors.R",
@@ -196,10 +197,28 @@ api <- plumber2::api(host = host, port = port)
 # "The request_routr/header_routr plugin is already loaded". So: register
 # api_any_header first (it materialises the header router properly), then all
 # routes (materialises the request router), and cors LAST so it reuses them.
+# request_context wraps internal_auth_header: plumber2 aborts if the header
+# router is materialised twice, so the per-request log context (section 11:
+# correlation_id, ip_hash, start time) has to ride along with auth rather than
+# register a second catch-all.
 api <- plumber2::api_any_header(
-  api, "/*", internal_auth_header,
+  api, "/*", request_context,
   serializers = js
 )
+# Section 11: one JSON line per request with method, path, status,
+# duration_ms, correlation_id and ip_hash. Conditions keep the default logger.
+# logger = NULL keeps whatever is installed, which by default is
+# logger_null() -- i.e. nothing is written at all. Console for conditions,
+# JSON for the per-request line.
+# Section 11: the JSON line is produced by `access_logger` (see
+# middleware/request_context.R for why it cannot be a format string), and
+# `access_log_format` is only a token so the "request" event still fires.
+api <- plumber2::api_logger(
+  api,
+  logger = access_logger,
+  access_log_format = access_log_format
+)
+
 api <- plumber2::api_get(api, "/health", health_handler, serializers = js)
 # Identity parsers: plumber2 only reads the body when parsers are set AND the
 # handler declares a `body` formal; JSON is validated manually in the

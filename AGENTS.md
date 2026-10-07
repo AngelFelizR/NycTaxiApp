@@ -51,7 +51,10 @@ construidas de verdad y smoke-testeadas**. **Hecho tras la 7:**
   tres descripciones del sistema), **el stack completo verificado de punta a
 punta con `infra/scripts/smoke-stack.sh`** y
 el **aviso de privacidad** (`app/www/privacy.html`, §9.1, obligatorio antes de
-publicar) enlazado desde Setup, el footer y el modal de email.
+publicar) enlazado desde Setup, el footer y el modal de email, y **R5:**
+`health_check.sh` (la API ya no está sin vigilar), `disk_check.sh` ampliado a
+los backups y el log estructurado de §11
+(`method/path/status/duration_ms/correlation_id/ip_hash`).
 **Pendiente — solo cosas externas:** credenciales SMTP reales + registros
 SPF/DKIM/DMARC, secretos de GitHub para desplegar en la VM, la regla de caché
 y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
@@ -220,6 +223,11 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   `SMTP_URL=smtp://mailpit:1025`, `TAXI_API_URL` y `SHARE_URL` en el
   contenedor (gana `environment:` sobre `env_file`, así que `.env` sigue
   valiendo para producción). Lee lo enviado en `http://127.0.0.1:8025`.
+- **Monitor de servicios** (raíz o VM, necesita Docker):
+  `./infra/scripts/health_check.sh` → 0 si api/share/Postgres/Redis están
+  bien, 1 si no (correo con cooldown de 6 h). `disk_check.sh` cubre disco
+  **y** backups: alerta si el dump más reciente pasa de 25 h, que es lo que
+  descubre que el cron se cayó.
 - **Smoke del stack** (raíz, necesita Docker y los modelos en `MODELS_DIR`):
   `./infra/scripts/smoke-stack.sh` → sale con 0. `SMOKE_KEEP=1` lo deja
   corriendo; es la única comprobación de §10 que existe hoy.
@@ -354,6 +362,16 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
   implementa. `R/modules/mod_results.R` es la pantalla final (6 KPIs,
   percentil, insignia de semilla); la fase 6 pendiente es **el envío real por
   SMTP** — los botones y el `share/` ya existen y se documentan más abajo.
+- **El log JSON de §11 no se puede construir con `access_log_format`.** Ese
+  formato es una plantilla cli/glue: sustituye `{...}` y **vuelve a pasar el
+  resultado por cli**, así que cualquier valor con llave (todo JSON) se toma
+  por código R y el servidor muere con `Could not parse cli {} expression`.
+  Tres intentos, tres crashes. La línea se arma en `access_logger()` con
+  `sprintf`, y el formato queda en `STATUS={response$status}` — que además es
+  el único sitio donde el status final es fiable (`res` y `request$response`
+  llegan tarde: un 404 logueado como 200). El `correlation_id` se
+  **formatea** del reloj, no se calcula con `as.numeric(Sys.time())*1e6 %% 1e9`:
+  un double no guarda 15+6 dígitos y dos peticiones seguidas chocaban.
 - **Un fallo NUNCA rechaza la promesa.** `api_async()` resuelve con
   `list(value=...)` o `list(failure=<mensaje de la API>)`, y `task_result()`
   convierte el segundo en notificación + `NULL`. No lo cambies: Shiny convierte

@@ -70,7 +70,8 @@ services:
       - "127.0.0.1:1025:1025"   # SMTP
       - "127.0.0.1:8025:8025"   # UI + REST API
     healthcheck:
-      test: ["CMD", "/mailpit", "healthcheck"]
+      # `readyz` is the subcommand the image documents (not `healthcheck`).
+      test: ["CMD", "/mailpit", "readyz"]
       interval: 5s
       timeout: 3s
       retries: 10
