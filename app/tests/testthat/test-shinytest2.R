@@ -82,8 +82,23 @@ invisible(cs$send_command(list(
   method = "Network.setExtraHTTPHeaders",
   params = list(headers = list(`X-Client-IP` = "203.0.113.9"))
 )))
+# One line the CI annotations can pick up: a timeout here has three possible
+# causes (no zones, no browser, app died) and the job log is not readable from
+# outside the repository.
+message(sprintf(
+  "DIAG before reload: app_data_dir=%s exists=%s zones=%d chrome=%s api=%s",
+  app_data_dir(), dir.exists(app_data_dir()), length(zone_choices()),
+  if (is.null(chromote::find_chrome())) "NULL" else chromote::find_chrome(),
+  Sys.getenv("TAXI_API_URL")
+))
 app$run_js("window.location.reload()")
-app$wait_for_js("!!document.querySelector('#setup-validate')", timeout = 30000)
+loaded <- tryCatch(
+  app$wait_for_js("!!document.querySelector('#setup-validate')", timeout = 30000),
+  error = function(e) {
+    message("DIAG after reload: ", conditionMessage(e))
+    stop(e)
+  }
+)
 
 # --- helpers ----------------------------------------------------------------
 
