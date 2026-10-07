@@ -23,9 +23,10 @@ emit() {
 }
 
 # 1. testthat's own reporting first: every Failure/Error block, with enough
-#    following lines to see what it was. `head -40` alone used to fill up with
-#    repeated fontconfig noise and drop these.
-blocks=$(grep -A6 -E '^── (Failure|Error) \(' "$log" 2>/dev/null)
+#    following lines to see what it was. The `── ` prefix only appears when
+#    the reporter has a TTY to draw it on, so in CI the line is bare
+#    "Failure ('file:line'): ..." -- both spellings are matched.
+blocks=$(grep -A6 -E '^(── )?(Failure|Error) \(' "$log" 2>/dev/null)
 if [ -n "$blocks" ]; then
   while IFS= read -r line; do
     case $line in
@@ -35,8 +36,12 @@ if [ -n "$blocks" ]; then
     esac
     [ -n "$line" ] && emit "$line"
   done <<< "$blocks"
-  # and the summary line, which carries the counts
+  # and the summary line, which carries the counts, plus the 40 lines before
+  # it -- if the block form was not printed, that is where the detail went.
   grep -E '^\[ FAIL [1-9]' "$log" | tail -1 | while IFS= read -r line; do
+    emit "$line"
+  done
+  grep -B40 -E '^\[ FAIL [1-9]' "$log" | tail -45 | while IFS= read -r line; do
     emit "$line"
   done
 else
