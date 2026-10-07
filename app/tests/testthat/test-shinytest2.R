@@ -96,6 +96,15 @@ loaded <- tryCatch(
   app$wait_for_js("!!document.querySelector('#setup-validate')", timeout = 30000),
   error = function(e) {
     message("DIAG after reload: ", conditionMessage(e))
+    # What is on screen after the reload: a blank page (Shiny never
+    # reconnected), an error page or the app without that button are three
+    # different bugs and the condition message alone cannot tell them apart.
+    message("DIAG after reload: source=", tryCatch(
+      paste(grep("setup-|Shiny|error", strsplit(
+        gsub("[\n\r\t ]+", " ", app$get_source()), " ")[[1]],
+        value = TRUE, ignore.case = TRUE), collapse = " | "),
+      error = function(e2) paste("get_source failed:", conditionMessage(e2))
+    ))
     stop(e)
   }
 )

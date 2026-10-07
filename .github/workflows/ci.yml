@@ -258,6 +258,21 @@ jobs:
           extra_nix_config: |
             substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
+      # Same flake as test-shiny: no binary cache for this set, so Nix
+      # compiles from source and "compilation failed for package 'brotli'"
+      # has taken this job down while the same package built elsewhere.
+      - name: build the test shell (retried)
+        working-directory: share
+        run: |
+          for i in 1 2 3; do
+            if nix-shell default.dev.nix --run "true"; then
+              echo "shell ready on attempt $i"
+              exit 0
+            fi
+            echo "shell attempt $i failed" >&2
+            sleep 15
+          done
+          exit 1
       - name: share tests
         working-directory: share
         run: |
