@@ -79,7 +79,10 @@ export NYCTAXI_TAG="${NYCTAXI_TAG:-test}"
 # --------------------------------------------------------------- 2. up
 echo
 echo "starting the stack..."
-if ! "${COMPOSE[@]}" up -d --remove-orphans; then
+# --force-recreate: nginx.conf and application.yml are bind-mounted, and
+# compose only compares the YAML it interpolates -- without this a config edit
+# would be silently ignored and the smoke would test yesterday's routing.
+if ! "${COMPOSE[@]}" up -d --remove-orphans --force-recreate; then
   echo "FAIL: compose could not start the stack" >&2
   exit 1
 fi
@@ -172,6 +175,22 @@ if docker exec nyctaxi-nginx nginx -T 2>/dev/null | grep -q 'proxy_set_header Up
   pass "nginx is configured to forward Upgrade/Connection"
 else
   fail "nginx has no proxy_set_header Upgrade" "Shiny would fall back to SockJS"
+fi
+
+# ---- security.txt and the CSP on the public card (7.2, 9.1) --------------
+code="$("${CURL[@]}" -o /dev/null -w '%{http_code}' "$BASE/.well-known/security.txt" || true)"
+if [[ "$code" == "200" ]]; then
+  pass "GET /.well-known/security.txt -> 200"
+else
+  fail "GET /.well-known/security.txt -> $code" "expected 200"
+fi
+
+csp="$("${CURL[@]}" -sI "$BASE/share/000000000000" 2>/dev/null \
+       | tr -d '\r' | grep -i '^content-security-policy:' || true)"
+if grep -q "script-src 'none'" <<<"$csp"; then
+  pass "GET /share/* carries script-src 'none'"
+else
+  fail "GET /share/* CSP = ${csp:-missing}" "expected script-src 'none'"
 fi
 
 # ---- (f) section 10: a Shiny instance cannot reach the database ---------

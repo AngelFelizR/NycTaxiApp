@@ -22,6 +22,20 @@ name: nyctaxi
 
 services:
   nginx:
+    # The root filesystem is immutable: everything writable is an
+    # explicit tmpfs or a volume. Anything the service forgets to
+    # declare fails here instead of silently accumulating on disk.
+    read_only: true
+    tmpfs: [/var/run, /var/cache/nginx, /tmp]
+    # Defense in depth (phase 7): drop every capability the service
+    # does not need. cap_add lists only what the stock entrypoints
+    # really use -- nginx sets uid/gid to `nginx`, postgres and redis
+    # chown their data directory, neither binds below 1024 except nginx.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER, NET_BIND_SERVICE]
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
     image: nginx:alpine
     container_name: nyctaxi-nginx
     restart: unless-stopped
@@ -50,6 +64,20 @@ services:
     cpus: 0.25
 
   shinyproxy:
+    # The root filesystem is immutable: everything writable is an
+    # explicit tmpfs. ShinyProxy talks to the Docker socket and creates
+    # containers elsewhere, so /tmp and its own cache are all it needs.
+    read_only: true
+    tmpfs: ["/tmp", "/root/.cache", "/root/.java"]
+    # Defense in depth (phase 7): drop every capability the service
+    # does not need. cap_add lists only what the stock entrypoints
+    # really use -- nginx sets uid/gid to `nginx`, postgres and redis
+    # chown their data directory, neither binds below 1024 except nginx.
+    cap_drop: [ALL]
+    cap_add: []
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
     image: openanalytics/shinyproxy:3.2.4
     container_name: nyctaxi-shinyproxy
     restart: unless-stopped
@@ -73,6 +101,20 @@ services:
     cpus: 0.5
 
   api:
+    # The root filesystem is immutable: everything writable is an
+    # explicit tmpfs or a volume. Anything the service forgets to
+    # declare fails here instead of silently accumulating on disk.
+    read_only: true
+    tmpfs: [/tmp]
+    # Defense in depth (phase 7): drop every capability the service
+    # does not need. cap_add lists only what the stock entrypoints
+    # really use -- nginx sets uid/gid to `nginx`, postgres and redis
+    # chown their data directory, neither binds below 1024 except nginx.
+    cap_drop: [ALL]
+    cap_add: []
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
     # NYCTAXI_TAG defaults to latest (what CI pushes); the smoke test sets it
     # to test to use the images built locally.
     image: ghcr.io/angelfelizr/nyc-taxi-api:${NYCTAXI_TAG:-latest}
@@ -96,9 +138,12 @@ services:
       VECLIB_MAXIMUM_THREADS: "1"
     # mori mmaps the fitted policy into /dev/shm (119 MB after quosure
     # sanitising); Docker's default 64 MB fails with ENOSPC. 256 MB is twice
-    # what it needs. It used to be 2g -- larger than this container's own
-    # mem_limit below, which is arithmetic that cannot hold: /dev/shm is a
-    # tmpfs and counts as container memory.
+    # what it needs -- and the margin matters: measured on this stack, all four
+    # models load with shm=256m at RSS 1086 MB, while a shm too small makes
+    # the policy fall back to the R heap and RSS jumps to 1977 MB, past the
+    # mem_limit below, and the container is OOM-killed. It used to be 2g --
+    # larger than that same mem_limit, which cannot hold: /dev/shm is a tmpfs
+    # and counts as container memory.
     shm_size: "256m"
     volumes:
       - /srv/nyctaxi/models:/models:ro
@@ -112,14 +157,17 @@ services:
       # /health sits behind the internal-auth router like every other endpoint
       # (5.4), so the probe has to send X-Internal-Key or it gets 403 forever
       # and `share`, which waits on `condition: service_healthy`, never starts.
-      # The key is read from the container's own env, never spelled out here --
-      # `docker inspect` must not show it.
+      # `$$` is compose's escape: it writes $API_INTERNAL_KEY into the command
+      # so the container resolves it from its own env and `docker inspect`
+      # shows the variable name, never the value. curl instead of Rscript:
+      # this ran every 30s and paid for a full R start (~1s, 100-200 MB) inside
+      # a container limited to 1.5 GB.
       test:
         - CMD-SHELL
         - >-
-          Rscript -e 'r <- httr2::req_timeout(httr2::request("http://127.0.0.1:8000/health"), 5);
-          r <- httr2::req_headers(r, `X-Internal-Key` = Sys.getenv("API_INTERNAL_KEY"));
-          quit(status = if (httr2::resp_status(httr2::req_perform(r)) == 200L) 0 else 1)' 
+          curl -s --max-time 5 -o /dev/null -w '%{http_code}'
+          -H "X-Internal-Key: $$API_INTERNAL_KEY"
+          http://127.0.0.1:8000/health | grep -q 200 
       interval: 30s
       timeout: 10s
       retries: 3
@@ -132,6 +180,20 @@ services:
     cpus: 1.0
 
   share:
+    # The root filesystem is immutable: everything writable is an
+    # explicit tmpfs or a volume. Anything the service forgets to
+    # declare fails here instead of silently accumulating on disk.
+    read_only: true
+    tmpfs: [/tmp]
+    # Defense in depth (phase 7): drop every capability the service
+    # does not need. cap_add lists only what the stock entrypoints
+    # really use -- nginx sets uid/gid to `nginx`, postgres and redis
+    # chown their data directory, neither binds below 1024 except nginx.
+    cap_drop: [ALL]
+    cap_add: []
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
     image: ghcr.io/angelfelizr/nyc-taxi-share:${NYCTAXI_TAG:-latest}
     container_name: nyctaxi-share
     restart: unless-stopped
@@ -167,6 +229,20 @@ services:
     cpus: 0.25
 
   postgres:
+    # The root filesystem is immutable: everything writable is an
+    # explicit tmpfs or a volume. Anything the service forgets to
+    # declare fails here instead of silently accumulating on disk.
+    read_only: true
+    tmpfs: [/var/run/postgresql, /tmp]
+    # Defense in depth (phase 7): drop every capability the service
+    # does not need. cap_add lists only what the stock entrypoints
+    # really use -- nginx sets uid/gid to `nginx`, postgres and redis
+    # chown their data directory, neither binds below 1024 except nginx.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     image: postgres:16-alpine
     container_name: nyctaxi-postgres
     restart: unless-stopped
@@ -188,6 +264,20 @@ services:
     cpus: 0.5
 
   redis:
+    # The root filesystem is immutable: everything writable is an
+    # explicit tmpfs or a volume. Anything the service forgets to
+    # declare fails here instead of silently accumulating on disk.
+    read_only: true
+    tmpfs: [/tmp]
+    # Defense in depth (phase 7): drop every capability the service
+    # does not need. cap_add lists only what the stock entrypoints
+    # really use -- nginx sets uid/gid to `nginx`, postgres and redis
+    # chown their data directory, neither binds below 1024 except nginx.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     image: redis:7-alpine
     container_name: nyctaxi-redis
     restart: unless-stopped

@@ -241,6 +241,20 @@ goes where.
   - `test-shinytest2.R` gained the case §10 spells out: a mock answering 429
     (via a new `POST /__fail` control route) must surface its own message.
 
+- **`docs/decisions/0004-container-hardening.md`**: no capabilities, read-only
+  roots, an unprivileged user and CSP on the static pages -- plus the two
+  things this deliberately does *not* fix (ShinyProxy keeps its Docker socket;
+  the ephemeral Shiny containers cannot be hardened through it) and the CSP
+  on `/`, which is deferred until something can drive a real session to
+  verify it.
+- `/.well-known/security.txt` (served from the document root, which needed a
+  location in the **443** server -- the one under port 80 never sees an HTTPS
+  request) and a Content-Security-Policy on the two static responses: `script-src 'none'` on `/share/*`, which section 7.2 already
+  says is never JavaScript, and a tight policy on `capacity-full.html`, which
+  does run one inline script for its waitlist form. The headers live in
+  `nginx/snippets/security-headers.conf` because nginx does not inherit
+  `add_header` into a location that defines its own.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -488,7 +502,11 @@ goes where.
      The real bound is `max-total-instances` on the spec, which §8.3 does
      specify; the extra key was mine and is gone.
   4. `shm_size: 2g` against `mem_limit: 1.5g` -- a tmpfs larger than the
-     container's own memory. Now 256 MB, twice what `mori`'s 119 MB needs.
+     container's own memory. Now 256 MB, twice what `mori`'s 119 MB needs, and
+     the margin is not cosmetic: measured on this stack, all four models load
+     at RSS 1086 MB with `shm=256m`, while a smaller shm makes the policy fall
+     back to the R heap and RSS jumps to 1977 MB -- past the `mem_limit`, so
+     the container would be OOM-killed.
   5. The dev container published `2222:22` on `0.0.0.0`, i.e. root SSH on every
      network the host joins. Now `127.0.0.1:2222:22`.
   6. `app_data_dir()` did not know about the mount target §8.3 uses (see
@@ -507,6 +525,25 @@ goes where.
   is what all seven callers already expect from a failure. Workers that will
   not start resolve the same way through `promise_resolve`, because that path
   cannot build a mirai. Section 10 asked for this test; the test found the bug.
+
+- **All six compose services are hardened**: `cap_drop: [ALL]` with an explicit
+  `cap_add` (nginx needs to bind 80/443 and drop to `nginx`; postgres and
+  redis need to chown their data directory; the three images we build need
+  nothing), `pids_limit`, `security_opt: no-new-privileges`, and
+  `read_only: true` with an explicit `tmpfs` for everything each service
+  writes. Nothing was discovered by reading docs: every mount was found by
+  making the filesystem read-only and running the smoke test.
+- **The three images run as `USER 65534:65534`** with `HOME=/tmp`. The Nix
+  base image has no `useradd` and `/etc/passwd` is a symlink into the store,
+  so a numeric id is the portable choice; `id` inside the container reports
+  `nobody`, and `/health` still answers 200 with RSS unchanged (199 MB for
+  share).
+- **The API healthcheck is `curl`, not `Rscript`.** It used to start a full R
+  interpreter every 30s -- about a second and 100-200 MB -- inside a container
+  limited to 1.5 GB. `curl` now lives in `nix/system.nix` rather than in
+  `/root/.nix-profile`, which a non-root user cannot traverse, and the probe
+  reads `$$API_INTERNAL_KEY` so `docker inspect` shows a variable name and
+  never the value.
 
 ### Fixed
 

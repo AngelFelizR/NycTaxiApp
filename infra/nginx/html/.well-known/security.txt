@@ -1,0 +1,6 @@
+# This is a comment line. The contact is for security reports about this
+# service only -- see app/www/privacy.html for the data notice.
+Contact: mailto:angel.esteban.feliz@gmail.com
+Expires: 2027-10-07T00:00:00.000Z
+Preferred-Languages: en
+Policy: https://nyctaxiapp.angelfeliz.com/privacy.html

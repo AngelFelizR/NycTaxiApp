@@ -64,5 +64,17 @@ WORKDIR /app
 COPY app/ /app/app/
 COPY shared/ /app/shared/
 
+
+# Phase 7 hardening: run unprivileged (ADR-004). The base image has no
+# useradd and /etc/passwd is a symlink into the Nix store, so a numeric id
+# with an explicit HOME is the portable choice. Everything R writes goes to
+# /tmp, which docker-compose.prod.yml declares as a tmpfs; HOME points there
+# so fontconfig, bslib and Shiny's session files have somewhere to land.
+# curl is used by the healthcheck and comes from nix/system.nix (/opt/system),
+# not from /root/.nix-profile, which a non-root user cannot traverse.
+ENV HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache
+USER 65534:65534
+
 EXPOSE 3838
 CMD ["sh", "-c", "cd /app/app && exec Rscript -e 'shiny::runApp(\".\", host = \"0.0.0.0\", port = 3838)'"]

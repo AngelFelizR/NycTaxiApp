@@ -77,6 +77,7 @@ Decisions the master document does not make, or makes differently.
 | [`0001-api-tests-use-fixed-postgres.md`](0001-api-tests-use-fixed-postgres.md) | §8 (differs from it) | Test suites use the root compose's Postgres, not testcontainers |
 | [`0002-sensitivity-redis-cache.md`](0002-sensitivity-redis-cache.md) | — | Sensitivity endpoint cache semantics in Redis |
 | [`0003-shared-visual-config.md`](0003-shared-visual-config.md) | §1.3, §6.4 (differs) | Visual configuration in `shared/*.yaml`, read by both frontends |
+| [`0004-container-hardening.md`](0004-container-hardening.md) | §1.1, §5.10 (extends) | No capabilities, read-only roots, unprivileged user, CSP on the static pages -- and why ShinyProxy keeps `docker.sock` |
 
 ## Execution still pending
 

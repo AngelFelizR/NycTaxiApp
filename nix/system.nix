@@ -16,6 +16,10 @@
         nix
         R
         which
+        # The healthcheck and the offline scripts probe HTTP with it. It lives
+        # here, not in the root profile, because /root is 0700 and a non-root
+        # container user cannot traverse it (phase 7 hardening).
+        curl
         fontconfig
         dejavu_fonts
         freefont_ttf;

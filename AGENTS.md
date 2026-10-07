@@ -507,9 +507,36 @@ de desarrollo **no** lleva Docker; ahí solo hay sshd y el repo montado):
   store del contenedor de build está vacío y **compila los paquetes R desde
   source**: el cache de `rstats-on-nix.cachix.org` no cubre este pin. El caché
   de BuildKit lo amortiza entre runs.
+- **Ojo con `nix/system.nix`:** cambiarlo invalida la capa `COPY nix/`, que va
+  antes de los `nix-build` de los paquetes R, así que **recompila todo** (~70
+  min las tres). Mantenerlo mínimo (R, locales, fuentes, `curl`). Etiquetar
+  bien: el script de build debe producir `nyc-taxi-shiny`, no `nyc-taxi-app`.
 - El `app` arrancando es también la prueba de que `shared/load.R` se resuelve
   dentro de la imagen: sin `shared/` las `label_curve_*` de `strings.R`
   fallarían antes del primer `Listening`.
+
+### Endurecimiento (ADR-004)
+
+- **Los 6 servicios del compose** llevan `cap_drop: [ALL]` con un `cap_add`
+  explícito, `pids_limit` y `no-new-privileges`, y **`read_only: true`** con un
+  `tmpfs` por lo que cada uno escribe. Nada de esto estaba en el doc: §1.1
+  fija RAM y CPU, no capacidades.
+- **Las 3 imágenes corren como `USER 65534:65534`** con `HOME=/tmp`. La base
+  Nix no tiene `useradd` y `/etc/passwd` es un symlink al store, así que una
+  id numérica es lo portable; `id` dentro del contenedor da `nobody` y
+  `/health` sigue en 200.
+- **El healthcheck de la API es `curl`, no `Rscript`** (arrancar R cada 30 s
+  en un contenedor de 1,5 GB). `curl` vive en `nix/system.nix` y no en
+  `/root/.nix-profile`, que un usuario no-root no puede atravesar; la clave va
+  como `$$API_INTERNAL_KEY` para que `docker inspect` no la muestre.
+- **CSP solo en las páginas estáticas**: `script-src 'none'` en `/share/*` y
+  una política cerrada en `capacity-full.html`. **La de `/` sigue pendiente**:
+  un CSP mal puesto rompe Shiny en silencio y el smoke no tiene navegador.
+  Los headers van en `snippets/security-headers.conf` porque nginx **no**
+  hereda `add_header` hacia una location que define el suyo.
+- **`/var/run/docker.sock` se queda en ShinyProxy** y los contenedores Shiny
+  efímeros no se pueden endurecer desde el compose (§8.3 no expone esa
+  opción). Ambos están registrados como riesgo aceptado en el ADR.
 
 ### Peso de las imágenes (seguimiento, no bloquea)
 
@@ -530,7 +557,8 @@ solo 80/443 publicados, §10(c) un contenedor en `nyctaxi_api_net` ve
 `api:8000` pero **no resuelve** `postgres`/`redis`, §10(d) `GET /health` sin
 `X-Internal-Key`→403 contra el router real, §10(e) `share` sin `POSTGRES_*`,
 `GET /`→200 (Nginx→ShinyProxy), `GET /share/<desconocido>`→404
-`application/json` (borde→share→API) y §8.2 `error_page 503`→`capacity-full.html`.
+`application/json` (borde→share→API), §8.2 `error_page 503`→`capacity-full.html`,
+`/.well-known/security.txt`→200 y `script-src 'none'` en la CSP de `/share/*`.
 Sale con 0 o con 1.
 
 - **El overlay no toca nada fuera del repo:** remapea `/models` y `/data` a
