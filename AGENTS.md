@@ -54,7 +54,10 @@ el **aviso de privacidad** (`app/www/privacy.html`, §9.1, obligatorio antes de
 publicar) enlazado desde Setup, el footer y el modal de email, y **R5:**
 `health_check.sh` (la API ya no está sin vigilar), `disk_check.sh` ampliado a
 los backups y el log estructurado de §11
-(`method/path/status/duration_ms/correlation_id/ip_hash`).
+(`method/path/status/duration_ms/correlation_id/ip_hash`), y **R6.1:**
+ADR-0006 + `test-contract-conformance.R`, que valida los cuerpos de respuesta
+contra `contract/openapi.yaml` con ajv (y encontró cuatro defectos reales al
+primer pase — ver el ADR).
 **Pendiente — solo cosas externas:** credenciales SMTP reales + registros
 SPF/DKIM/DMARC, secretos de GitHub para desplegar en la VM, la regla de caché
 y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
@@ -126,7 +129,13 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 - `app/` → tests de **UI** (unitarios de módulos + `shinytest2`).
 - `api/` → tests de la **API** (`testthat` con el **Postgres fijo del compose**
   raíz, no testcontainers — `docs/decisions/0001-*`), Redis real para el
-  caché de `/sensitivity` (se salta si no responde).
+  caché de `/sensitivity` (se salta si no responde). Incluye la **conformidad
+  de los cuerpos** con el contrato (ADR-0006):
+  `helper-contract.R` compila un ajv por esquema con `jsonvalidate` + `V8`
+  y `expect_contract_response()` exige además que el **status** esté
+  documentado. `yaml`, `jsonvalidate` y `V8` viven en `api/default.dev.nix`
+  y **no** en `nix/r-api.nix` (esa es capa de la imagen), igual que
+  `testthat`.
 - `share/` → tests del **servicio público**: bot de filtro, HTML, PNG, cliente
   API (httr2 *mockeado*) y Redis; `test-routes.R` arranca el servicio **y un
   stub de la API** en dos procesos hijo con `callr` y les dispara de verdad.

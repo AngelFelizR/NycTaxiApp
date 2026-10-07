@@ -16,11 +16,28 @@ test_that("api/plumber.R registers internal_auth_header as a catch-all", {
   expect_equal(sum(hooks > 0), 1L,
                label = "number of api_any_header registrations")
 
+  # The hook is request_context rather than internal_auth_header itself
+  # (section 11): plumber2 allows a single header catch-all, so the per-request
+  # log context rides along with auth. What matters for section 10(d) is that
+  # the hook covers /* AND that it still performs the auth decision, which is
+  # checked against the middleware's own source just below.
   expect_match(
     txt,
-    'api_any_header\\(\\s*api\\s*,\\s*"\\/\\*"\\s*,\\s*internal_auth_header',
+    'api_any_header\\(\\s*api\\s*,\\s*"\\/\\*"\\s*,\\s*request_context',
     perl = TRUE,
-    label = "the hook covers /* and is internal_auth_header"
+    label = "the hook covers /* and is request_context"
+  )
+
+  middleware <- paste(
+    readLines(file.path(repo_root, "api", "R", "middleware",
+                        "request_context.R"), warn = FALSE),
+    collapse = "\n"
+  )
+  expect_match(
+    middleware,
+    "internal_auth_header\\(request, response\\)",
+    perl = TRUE,
+    label = "request_context performs the internal key check"
   )
 })
 

@@ -293,6 +293,15 @@ goes where.
   generated otherwise; Nginx's own log line carries `$request_id` alongside
   `rt=`.
 
+- **Response-body conformance with `contract/openapi.yaml`** (ADR-0006):
+  `api/tests/testthat/test-contract-conformance.R` drives the real handlers
+  and checks each response -- status and body -- against the schema the
+  contract names for exactly that route and code. A status the contract does
+  not document fails the test, which is how it found the four defects below.
+  The check runs on `jsonvalidate` + V8 (real ajv), with `yaml`, `jsonvalidate`
+  and `V8` added to `api/default.dev.nix` and to nothing else -- never to the
+  production image.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -628,6 +637,26 @@ goes where.
   `451 4.3.5 malformed header line`. The disk alert had never actually been
   deliverable. The whole RFC822 message now goes in the upload instead, and
   `health_check.sh` was written the same way from the start.
+
+- `POST /experiments/{id}/feedback` **without** a `comment` (optional in the
+  contract) died inside `db_lit()` -- "expects a scalar" -- and answered
+  503 "Database unavailable" for a stored rating. A missing comment is SQL
+  NULL; `503` is now documented for that path too, as `/finish` and
+  `/abandon` already did.
+- `db_finish_experiment()` accepted `trips_accepted` and `trips_rejected` and
+  never wrote them, and `001_init.sql` has no such columns at all. So
+  `GET /share-data/{token}` returned `null` for two required integers and the
+  public card could show no trip counts. They are now derived from the
+  player's decisions -- the same source `POST /finish` uses for
+  `result$trips_accepted`.
+- `Experiment.feedback.comment` is emitted as `null` when there is no
+  comment, but the contract declared `type: string`. It is now
+  `type: [string, "null"]`, the spelling the contract already uses for
+  `finished_at`.
+- `integration/test-router-auth.R` still required the header catch-all to
+  *be* `internal_auth_header`; section 11 moved it to `request_context`,
+  which wraps auth. It now asserts the registration **and** that
+  `request_context` performs the internal-key check.
 
 ### Fixed
 

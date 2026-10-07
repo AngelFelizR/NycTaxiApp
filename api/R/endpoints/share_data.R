@@ -18,8 +18,13 @@ share_data_payload <- function(exp, user, policy, baseline) {
     final_baseline_wage = as.numeric(exp$final_baseline_wage),
     user_percentile = as.numeric(exp$user_percentile),
     pct_following_policy = as.numeric(exp$pct_following_policy),
-    trips_accepted = as.integer(exp$trips_accepted),
-    trips_rejected = as.integer(exp$trips_rejected),
+    # Derived from the player's decisions rather than read from the row:
+    # experiments has no trips_* columns and db_finish_experiment never wrote
+    # them, so reading exp$trips_accepted always yielded NULL and the contract
+    # integer came back as null (the card showed no counts at all). Same source
+    # POST /finish uses for result$trips_accepted, so the two agree.
+    trips_accepted = trips_count(user, TRUE),
+    trips_rejected = trips_count(user, FALSE),
     label = outcome_label(outcome, seed_is_custom),
     share_text = outcome_share_text(outcome, seed_is_custom),
     history = history_points(user, policy, baseline)

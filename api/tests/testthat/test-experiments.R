@@ -8,30 +8,6 @@
 # The plumbing (with_api_db, create_exp, status_of, ...) lives in
 # helper-experiments.R so test-experiments-async.R can share it.
 
-# Drives the whole day: accepts every offer until the shift runs out.
-play_day <- function(id, resume, ip) {
-  steps <- 0L
-  repeat {
-    response <- fake_response()
-    get_state_handler(fake_request(exp_headers(ip, resume)), response, id)
-    if (!is.null(response$status)) return(response)
-    trip <- response$body$next_trip
-    if (!is.list(trip)) break
-    steps <- steps + 1L
-    if (steps > 300L) stop("day did not end after 300 decisions")
-    decision <- fake_response()
-    create_decision_handler(
-      fake_request(exp_headers(ip, resume)), decision, id,
-      json_raw(list(trip_id = trip$trip_id, accepted = TRUE))
-    )
-    if (!is.null(decision$status)) {
-      stop("decision rejected with ", decision$status, ": ",
-           decision$body$message)
-    }
-  }
-  response
-}
-
 test_that("POST /experiments runs the three trajectories", {
   with_api_db({
     response <- create_exp()

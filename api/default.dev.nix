@@ -12,8 +12,20 @@ in pkgs.mkShell {
   # whatever the R wrapper would add.
   R_LIBS_SITE = "${rApi}/library";
   # testthat lives here rather than in nix/r-api.nix: that module is also the
-  # production image's layer, and no deployment runs a test (phase 7).
-  buildInputs = [ pkgs.R rApi pkgs.rPackages.testthat ];
+  # production image's layer, and no deployment runs a test (phase 7). The
+  # contract-conformance stack (ADR-0006) is here for the same reason: nothing
+  # in production validates a response body against contract/openapi.yaml.
+  #   yaml          -- read the contract
+  #   jsonvalidate  -- real JSON Schema validation, via
+  #   V8            -- the embedded engine ajv runs in
+  buildInputs = [
+    pkgs.R
+    rApi
+    pkgs.rPackages.testthat
+    pkgs.rPackages.yaml
+    pkgs.rPackages.jsonvalidate
+    pkgs.rPackages.V8
+  ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
     then "${pkgs.glibcLocales}/lib/locale/locale-archive"

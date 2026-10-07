@@ -804,6 +804,8 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
   /experiments/{id}/abandon:
     post:
@@ -1622,7 +1624,7 @@ components:
                   minimum: 1
                   maximum: 5
                 comment:
-                  type: string
+                  type: [string, "null"]
                 public:
                   type: boolean
                   description: Consent to display the comment publicly (off by default).

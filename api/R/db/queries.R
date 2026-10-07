@@ -279,6 +279,11 @@ db_update_feedback <- function(id, rating, comment, public) {
   pool <- db_pool()
   if (is.null(pool)) return(NULL)
   db_try("update_feedback", {
+    # comment is optional in the contract: a missing one is SQL NULL, not a
+    # missing literal. db_lit() rejects NULL outright ("expects a scalar"),
+    # so submitting a rating without a comment used to fail the statement and
+    # answer 503 "Database unavailable."
+    if (is.null(comment)) comment <- NA_character_
     n <- DBI::dbExecute(pool, paste0(
       "UPDATE experiments SET feedback_rating = ", db_lit(pool, as.integer(rating)),
       ", feedback_comment = ", db_lit(pool, comment),
