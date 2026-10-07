@@ -240,8 +240,10 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 - **Smoke del stack** (raíz, necesita Docker y los modelos en `MODELS_DIR`):
   `./infra/scripts/smoke-stack.sh` → sale con 0. `SMOKE_KEEP=1` lo deja
   corriendo; es la única comprobación de §10 que existe hoy.
-- Tests de **integración** (cwd = `integration/`, en el shell **raíz**):
-  `nix-shell ../default.nix -A shell --run "Rscript tests/testthat.R"`.
+- Tests de **integración** (cwd = `integration/`):
+  `nix-shell default.dev.nix --run "Rscript tests/testthat.R"` (su propio
+  shell, `integration/default.dev.nix`: solo `testthat` + `yaml`; el shell
+  raíz compila seis sets de paquetes que estos tests no tocan).
   No necesita ningún servicio: son las tres descripciones del
   sistema (contrato ↔ rutas registradas ↔ caminos de los clientes) mirándose
   una a la otra.

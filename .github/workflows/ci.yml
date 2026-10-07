@@ -253,7 +253,8 @@ jobs:
   # ---------------------------------------------------------------------
   # test-integration: the three descriptions of the system against each
   # other (contract <-> registered routes <-> client paths). No services: it
-  # only reads files, which is why it needs no Postgres or Redis.
+  # only reads files, which is why it needs no Postgres or Redis and only
+  # integration/default.dev.nix (testthat + yaml) instead of the root shell.
   # ---------------------------------------------------------------------
   test-integration:
     runs-on: ubuntu-latest
@@ -261,8 +262,8 @@ jobs:
     if: needs.changes.outputs.integration == 'true'
     steps:
       - uses: actions/checkout@v4
-      # This job did not have this step: `nix-shell` does not exist on a
-      # GitHub runner, so it failed after five seconds with "command not
+      # This job originally had no Nix at all: `nix-shell` does not exist on
+      # a GitHub runner, so it failed after five seconds with "command not
       # found" rather than running a single test.
       - uses: cachix/install-nix-action@v31
         with:
@@ -270,13 +271,14 @@ jobs:
             substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
       - name: Run integration tests if the package exists
+        working-directory: integration
         run: |
-          if [[ ! -f integration/DESCRIPTION ]]; then
+          if [[ ! -f DESCRIPTION ]]; then
             echo "integration/ has no DESCRIPTION yet -- nothing to run."
             exit 0
           fi
           set -o pipefail
-          nix-shell default.nix -A shell --run "cd integration && Rscript tests/testthat.R" 2>&1 \
+          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
             | tee "$RUNNER_TEMP/integration.log"
       - name: annotate failures
         if: failure()

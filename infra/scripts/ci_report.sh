@@ -25,7 +25,9 @@ emit() {
 # DIAG lines are emitted by the tests themselves for exactly this purpose --
 # the job log is not readable from outside the repository, so a test that can
 # fail for several reasons prints what it saw. Always reported, first.
-grep -hE '^DIAG ' "$log" 2>/dev/null | while IFS= read -r line; do
+# Not anchored: testthat's progress reporter can paste the message onto the
+# end of the spinner line, so only the marker itself can be trusted.
+grep -hE 'DIAG ' "$log" 2>/dev/null | while IFS= read -r line; do
   emit "$line"
 done
 
