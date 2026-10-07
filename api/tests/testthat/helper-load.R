@@ -24,7 +24,17 @@ suppressPackageStartupMessages({
   library(plumber2)
 })
 api_dir <- normalizePath(file.path("..", ".."))
-source(file.path(api_dir, "R", "utils.R"))
+# The package, not a pile of source() calls (ADR-0007). The two branches are
+# not cosmetic: under covr (R_COVR is set) an instrumented copy of taxiapi has
+# been installed into a temporary library and has to be the one that runs --
+# loading the source instead would instrument nothing and report 0 %. Outside
+# coverage, load_all is what a developer expects: edit, re-run, no reinstall.
+if (nzchar(Sys.getenv("R_COVR"))) {
+  library(taxiapi)
+} else {
+  pkgload::load_all(api_dir, export_all = TRUE, helpers = FALSE,
+                    attach_testthat = FALSE, quiet = TRUE)
+}
 # Same .env as plumber.R: inside the dev container it carries POSTGRES_*,
 # REDIS_*, API_INTERNAL_KEY and IP_HASH_SALT (the container injects no env of
 # its own), so the phase-3 tests hit the real Postgres and Redis of the root
@@ -35,33 +45,6 @@ load_dotenv(file.path(api_dir, "..", ".env"))
 # inline so assertions never race a background child. The async behaviour is
 # covered by test-experiments-async.R, which flips this off per test.
 Sys.setenv(API_EXPERIMENTS_SYNC = "1")
-source(file.path(api_dir, "R", "db", "pool.R"))
-source(file.path(api_dir, "R", "db", "redis.R"))
-source(file.path(api_dir, "R", "db", "migrations.R"))
-source(file.path(api_dir, "R", "db", "queries.R"))
-source(file.path(api_dir, "R", "data", "trips.R"))
-source(file.path(api_dir, "R", "ml", "load_model.R"))
-source(file.path(api_dir, "R", "ml", "perf.R"))
-source(file.path(api_dir, "R", "ml", "predict.R"))
-source(file.path(api_dir, "R", "ml", "recommend.R"))
-source(file.path(api_dir, "R", "ml", "sensitivity.R"))
-source(file.path(api_dir, "R", "ml", "simulate.R"))
-source(file.path(api_dir, "R", "ml", "outcome.R"))
-source(file.path(api_dir, "R", "middleware", "internal_auth.R"))
-source(file.path(api_dir, "R", "middleware", "client_ip.R"))
-source(file.path(api_dir, "R", "middleware", "rate_limit.R"))
-source(file.path(api_dir, "R", "endpoints", "health.R"))
-source(file.path(api_dir, "R", "endpoints", "predict.R"))
-source(file.path(api_dir, "R", "endpoints", "recommend_start.R"))
-source(file.path(api_dir, "R", "endpoints", "validate_trip_start.R"))
-source(file.path(api_dir, "R", "endpoints", "sensitivity.R"))
-source(file.path(api_dir, "R", "endpoints", "experiments.R"))
-source(file.path(api_dir, "R", "endpoints", "share_data.R"))
-source(file.path(api_dir, "R", "endpoints", "waitlist.R"))
-source(file.path(api_dir, "R", "endpoints", "metrics.R"))
-source(file.path(api_dir, "R", "endpoints", "share_email.R"))
-source(file.path(api_dir, "R", "endpoints", "not_found.R"))
-source(file.path(api_dir, "R", "ml", "steps", "step_join_geospatial_features.R"))
 
 # ensure_schema() resolves api/migrations/ from here, exactly as plumber.R does.
 model_state$repo_root <- normalizePath(file.path(api_dir, ".."))

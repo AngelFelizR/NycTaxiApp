@@ -69,9 +69,8 @@ test_that("a missing X-Client-IP shares the literal unknown bucket", {
 })
 
 test_that("the limit fails closed when Redis is down", {
-  orig <- get("redis_incr", envir = globalenv())
-  assign("redis_incr", function(key, ttl = 86400L) NULL, envir = globalenv())
-  on.exit(assign("redis_incr", orig, envir = globalenv()), add = TRUE)
+  local_mocked_bindings(redis_incr = function(key, ttl = 86400L) NULL,
+                        .package = "taxiapi")
 
   response <- fake_response()
   rate_limit_check(fake_request(list("x-client-ip" = "10.0.0.1")), response,

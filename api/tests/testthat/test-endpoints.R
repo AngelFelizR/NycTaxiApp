@@ -68,17 +68,14 @@ test_that("predict_handler maps the payload onto the policy frame", {
   on.exit(restore_model_state(old), add = TRUE)
   set_model_state(policy_name = "fake")
 
-  orig <- policy_probability
   captured <- NULL
-  assign(
-    "policy_probability",
-    function(frame) {
+  local_mocked_bindings(
+    policy_probability = function(frame) {
       captured <<- frame
       0.941
     },
-    envir = globalenv()
+    .package = "taxiapi"
   )
-  on.exit(assign("policy_probability", orig, envir = globalenv()), add = TRUE)
 
   payload <- list(
     pulocation_id = 61, dolocation_id = 230, trip_miles = 2.5,
@@ -99,7 +96,8 @@ test_that("predict_handler maps the payload onto the policy frame", {
   expect_s3_class(captured$request_datetime, "POSIXct")
 
   # Strictly greater than 0.90 (contract): exactly 0.90 is rejected.
-  assign("policy_probability", function(frame) 0.90, envir = globalenv())
+  local_mocked_bindings(policy_probability = function(frame) 0.90,
+                        .package = "taxiapi")
   response <- fake_response()
   predict_handler(fake_request(ct), response, json_raw(payload))
   expect_identical(response$body, list(accepted = FALSE, probability = 0.90))
@@ -110,9 +108,8 @@ test_that("predict_handler reports model failures as 500", {
   on.exit(restore_model_state(old), add = TRUE)
   set_model_state(policy_name = "fake")
 
-  orig <- policy_probability
-  assign("policy_probability", function(frame) NA_real_, envir = globalenv())
-  on.exit(assign("policy_probability", orig, envir = globalenv()), add = TRUE)
+  local_mocked_bindings(policy_probability = function(frame) NA_real_,
+                        .package = "taxiapi")
 
   payload <- list(
     pulocation_id = 61, dolocation_id = 230, trip_miles = 2.5,
@@ -183,14 +180,9 @@ test_that("validate-trip-start returns the optimal / better variants", {
   payload <- list(
     company = "Uber", datetime = "2025-01-05T16:00:00Z", location_id = 61
   )
-  orig <- start_is_high_value
-  on.exit(
-    assign("start_is_high_value", orig, envir = globalenv()),
-    add = TRUE
-  )
-
   # Optimal start: better_* fields are omitted entirely (not null).
-  assign("start_is_high_value", function(...) TRUE, envir = globalenv())
+  local_mocked_bindings(start_is_high_value = function(...) TRUE,
+                        .package = "taxiapi")
   response <- fake_response()
   res <- validate_trip_start_handler(fake_request(ct), response, json_raw(payload))
   expect_s3_class(res, "plumber_control")
@@ -200,10 +192,10 @@ test_that("validate-trip-start returns the optimal / better variants", {
   # (The candidate must not be Uber itself, otherwise the first call would
   # already be optimal.)
   lyft_payload <- modifyList(payload, list(company = "Lyft"))
-  assign(
-    "start_is_high_value",
-    function(company, datetime, location_id) identical(company, "Uber"),
-    envir = globalenv()
+  local_mocked_bindings(
+    start_is_high_value = function(company, datetime, location_id)
+      identical(company, "Uber"),
+    .package = "taxiapi"
   )
   response <- fake_response()
   validate_trip_start_handler(fake_request(ct), response, json_raw(lyft_payload))
@@ -212,7 +204,8 @@ test_that("validate-trip-start returns the optimal / better variants", {
   expect_identical(response$body$better_datetime, "2025-01-05T16:00:00Z")
 
   # Not optimal anywhere: next valid start from the lookup table.
-  assign("start_is_high_value", function(...) FALSE, envir = globalenv())
+  local_mocked_bindings(start_is_high_value = function(...) FALSE,
+                        .package = "taxiapi")
   response <- fake_response()
   validate_trip_start_handler(fake_request(ct), response, json_raw(payload))
   expect_identical(response$body$is_optimal, FALSE)

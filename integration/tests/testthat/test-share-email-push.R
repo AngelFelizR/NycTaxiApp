@@ -10,7 +10,7 @@ read_src <- function(rel) {
 }
 
 test_that("share-email renders by pushing, never by pulling (ADR-005)", {
-  src <- read_src("api/R/endpoints/share_email.R")
+  src <- read_src("api/R/endpoint_share_email.R")
 
   # The push exists ...
   expect_match(src, "render_card_at_share(", fixed = TRUE,
@@ -27,15 +27,15 @@ test_that("share-email renders by pushing, never by pulling (ADR-005)", {
 
 test_that("the payload builder lives in exactly one place", {
   builders <- 0
-  for (rel in c("api/R/endpoints/share_data.R",
-                "api/R/endpoints/share_email.R")) {
+  for (rel in c("api/R/endpoint_share_data.R",
+                "api/R/endpoint_share_email.R")) {
     if (grepl("share_data_payload <- function", read_src(rel), fixed = TRUE)) {
       builders <- builders + 1
     }
   }
   expect_equal(builders, 1L,
                label = "share_data_payload defined once, used by both paths")
-  expect_match(read_src("api/R/endpoints/share_data.R"),
+  expect_match(read_src("api/R/endpoint_share_data.R"),
                "response$body <- share_data_payload(", fixed = TRUE,
                label = "GET /share-data answers the same document")
 })

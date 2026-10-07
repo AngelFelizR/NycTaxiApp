@@ -29,8 +29,8 @@ test_that("api/plumber.R registers internal_auth_header as a catch-all", {
   )
 
   middleware <- paste(
-    readLines(file.path(repo_root, "api", "R", "middleware",
-                        "request_context.R"), warn = FALSE),
+    readLines(file.path(repo_root, "api", "R",
+                        "middleware_request_context.R"), warn = FALSE),
     collapse = "\n"
   )
   expect_match(

@@ -53,18 +53,14 @@ suppressPackageStartupMessages({
   library(nanoparquet)
 })
 
-for (rel in c(
-  "R/utils.R",
-  "R/data/trips.R",
-  "R/ml/load_model.R",
-  "R/ml/perf.R",
-  "R/ml/predict.R",
-  "R/ml/simulate.R",
-  "R/ml/outcome.R"
-)) source(file.path(root, "api", rel))
-# The fitted recipes bake through this custom step, so its S3 methods must be
-# registered exactly as plumber.R does.
-source(file.path(root, "api", "R", "ml", "steps", "step_join_geospatial_features.R"))
+# The package rather than a hand-picked subset of it (ADR-0007): the same
+# loader api/plumber.R uses, so this script cannot drift from the service.
+if (requireNamespace("taxiapi", quietly = TRUE)) {
+  suppressPackageStartupMessages(library(taxiapi))
+} else {
+  pkgload::load_all(file.path(root, "api"), export_all = TRUE,
+                    helpers = FALSE, attach_testthat = FALSE, quiet = TRUE)
+}
 
 # Same warm caches as the API process: without them every predict pays for the
 # holiday calendars and the tibble machinery (~150 ms of the ~197 ms).

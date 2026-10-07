@@ -49,9 +49,8 @@ mock_policy_probability <- function(frame) {
 }
 
 with_mocked_policy <- function(code) {
-  orig <- policy_probability
-  assign("policy_probability", mock_policy_probability, envir = globalenv())
-  on.exit(assign("policy_probability", orig, envir = globalenv()), add = TRUE)
+  local_mocked_bindings(policy_probability = mock_policy_probability,
+                        .package = "taxiapi")
   force(code)
 }
 

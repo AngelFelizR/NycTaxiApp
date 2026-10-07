@@ -80,6 +80,7 @@ Decisions the master document does not make, or makes differently.
 | [`0004-container-hardening.md`](0004-container-hardening.md) | §1.1, §5.10 (extends) | No capabilities, read-only roots, unprivileged user, CSP on the static pages -- and why ShinyProxy keeps `docker.sock` |
 | [`0005-push-the-card-payload.md`](0005-push-the-card-payload.md) | §5.6, §5.10 (differs) | The API pushes the card payload to `share/` instead of `share` calling back into the request that is waiting for it |
 | [`0006-response-schema-conformance.md`](0006-response-schema-conformance.md) | §10 | Response bodies are validated against `contract/openapi.yaml` with ajv, not with a checker we wrote |
+| [`0007-both-services-are-packages.md`](0007-both-services-are-packages.md) | §10, §1.1, §6.2 (differs) | `api/` and `app/` are R packages: flat `R/`, installed in production, `load_all()` in development |
 
 ## Execution still pending
 

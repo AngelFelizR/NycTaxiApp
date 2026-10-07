@@ -14,6 +14,12 @@
         # Background workers: share/tests/testthat/test-routes.R boots the
         # service and a stub of the API in child processes.
         callr
-        plumber2;
+        plumber2
+        # ADR-0007: dev loads the packages with pkgload::load_all() instead
+        # of the source() lists they used to have. Only dev needs it -- the
+        # images install the packages with R CMD INSTALL -- which is why it
+        # lives here (excluded from every image via withDev = false) and not
+        # in r-api.nix or r-shiny.nix.
+        pkgload;
     };
   }

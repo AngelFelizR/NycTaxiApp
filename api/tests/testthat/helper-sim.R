@@ -63,8 +63,9 @@ sim_start_datetime <- function() {
 sim_policy_probability <- function(frame) rep(0.95, nrow(frame))
 
 with_accept_all_policy <- function(code) {
-  orig <- get("policy_probability", envir = globalenv())
-  assign("policy_probability", sim_policy_probability, envir = globalenv())
-  on.exit(assign("policy_probability", orig, envir = globalenv()), add = TRUE)
+  # The code under test lives in the taxiapi namespace now (ADR-0007), where
+  # a globalenv() binding would be shadowed by the namespace's own copy.
+  local_mocked_bindings(policy_probability = sim_policy_probability,
+                        .package = "taxiapi")
   force(code)
 }

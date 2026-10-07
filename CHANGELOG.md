@@ -302,6 +302,17 @@ goes where.
   and `V8` added to `api/default.dev.nix` and to nothing else -- never to the
   production image.
 
+- **`api/` is an R package** (ADR-0007): `NAMESPACE`, `R/` flat with the
+  layer in the file name (`db_pool.R`, `ml_predict.R`,
+  `endpoint_predict.R`, `middleware_client_ip.R`, …), `R CMD INSTALL` in the
+  image and `pkgload::load_all()` in development. `plumber.R` and the test
+  bootstrap stopped carrying 30-entry `source()` lists; the S3 methods of the
+  recipes step are declared instead of being found by accident in
+  `globalenv()`; the three functions the tests override are mocked with
+  `local_mocked_bindings()` instead of `assign(…, globalenv())`, which can
+  no longer reach a namespace binding. `pkgload` and `covr` were added to the
+  dev shells only. This is what makes section 10's coverage measurable.
+
 ### Changed
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
@@ -657,6 +668,20 @@ goes where.
   *be* `internal_auth_header`; section 11 moved it to `request_context`,
   which wraps auth. It now asserts the registration **and** that
   `request_context` performs the internal-key check.
+
+- Two failures that only appear once the code lives in a namespace, both
+  found by the suite and both impossible to see before:
+  - `data.table::cedta()` silently downgrades `x[i, on = …]` to
+    `[.data.frame` for a calling package it does not recognise, and the join
+    then dies with "invalid subscript type 'list'". The package now sets
+    `.datatable.aware <- TRUE`.
+  - `prep.step_join_geospatial_features` stopped being found as soon as it
+    left `globalenv()`: S3 dispatch uses what a package declares, not what it
+    happens to have attached.
+- `test-simulate.R` nested two `local_mocked_bindings()` on the same binding
+  in different frames; the inner restore then wrote a binding the outer one
+  had already re-locked ("cannot change value of locked binding"). The two
+  mocks are siblings now.
 
 ### Fixed
 

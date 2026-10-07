@@ -46,7 +46,17 @@ Sys.setenv(
   VECLIB_MAXIMUM_THREADS = "1"
 )
 
-source(file.path(root, "api", "R", "utils.R"))
+# Load taxiapi. The image installs it (api/Dockerfile runs R CMD INSTALL), so
+# production runs a package built from the source that is in the image; a
+# development shell has no installed copy and loads the source instead. The
+# two are the same files, and pkgload never reaches an image because the
+# installed branch is the only one that runs there.
+if (requireNamespace("taxiapi", quietly = TRUE)) {
+  suppressPackageStartupMessages(library(taxiapi))
+} else {
+  pkgload::load_all(file.path(root, "api"), export_all = TRUE,
+                    helpers = FALSE, attach_testthat = FALSE, quiet = TRUE)
+}
 load_dotenv(file.path(root, ".env"))
 
 suppressPackageStartupMessages({
@@ -76,39 +86,6 @@ suppressPackageStartupMessages({
   library(redux)
 })
 
-for (rel in c(
-  "R/db/pool.R",
-  "R/db/redis.R",
-  "R/db/migrations.R",
-  "R/db/queries.R",
-  "R/data/trips.R",
-  "R/ml/load_model.R",
-  "R/ml/perf.R",
-  "R/ml/predict.R",
-  "R/ml/recommend.R",
-  "R/ml/sensitivity.R",
-  "R/ml/simulate.R",
-  "R/ml/outcome.R",
-  "R/middleware/internal_auth.R",
-  "R/middleware/request_context.R",
-  "R/middleware/client_ip.R",
-  "R/middleware/rate_limit.R",
-  "R/middleware/cors.R",
-  "R/endpoints/health.R",
-  "R/endpoints/predict.R",
-  "R/endpoints/recommend_start.R",
-  "R/endpoints/validate_trip_start.R",
-  "R/endpoints/sensitivity.R",
-  "R/endpoints/experiments.R",
-  "R/endpoints/share_data.R",
-  "R/endpoints/waitlist.R",
-  "R/endpoints/metrics.R",
-  "R/endpoints/share_email.R",
-  "R/endpoints/not_found.R"
-)) {
-  source(file.path(root, "api", rel))
-}
-source(file.path(root, "api", "R", "ml", "steps", "step_join_geospatial_features.R"))
 
 # Memoize timeDate holiday calendars and swap in the faster bake methods
 # for step_impute_median / step_rename (phase-1 latency budget): exact same

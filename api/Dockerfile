@@ -52,19 +52,33 @@ ENV PATH="/opt/system/bin:${PATH}" \
     FONTCONFIG_FILE="/opt/system/etc/fonts/fonts.conf" \
     FONTCONFIG_PATH="/opt/system/etc/fonts" \
     XDG_DATA_DIRS="/opt/system/share:/opt/system/lib/X11/xkb" \
-    R_LIBS_SITE="/opt/r/library" \
+    # /opt/r-lib holds taxiapi, installed below from the source in the image
+    # (ADR-0007); /opt/r/library is the Nix package set.
+    R_LIBS_SITE="/opt/r-lib:/opt/r/library" \
     # 4.1: read when R starts, not when the code runs -- a fork after libgomp
     # built its pool deadlocks the trajectory child in futex_wait.
     OMP_NUM_THREADS="1" \
     OPENBLAS_NUM_THREADS="1" \
     VECLIB_MAXIMUM_THREADS="1"
 
-# api/plumber.R resolves `root` as the parent of api/ and sources
-# file.path(root, "api", "R", ...) plus file.path(root, ".env"); the layout
-# mirrors the repository, and .env is absent on purpose (secrets arrive from
-# the compose env_file instead -- load_dotenv skips what is already set).
+# api/plumber.R resolves `root` as the parent of api/ and loads .env from
+# there; the layout mirrors the repository (migrations are read from
+# file.path(root, "api", "migrations")), and .env is absent on purpose --
+# secrets arrive from the compose env_file instead, and load_dotenv skips
+# what is already set.
 WORKDIR /app
 COPY api/ /app/api/
+
+# ADR-0007: the API runs an installed package, not a pile of source() calls.
+# Installed from the source that was just copied, so what runs is what the
+# image contains and there is no store path that can go stale. pkgload is NOT
+# here: plumber.R takes the library() branch precisely because the package is
+# installed, and the dev-only tooling never reaches this layer. Run before
+# USER below -- /opt/r-lib has to be writable, and R's default library would
+# land in a HOME that points at a tmpfs.
+RUN mkdir -p /opt/r-lib \
+ && R CMD INSTALL --library=/opt/r-lib /app/api \
+ && rm -rf /tmp/* /tmp/..?* /tmp/.[!.]*
 
 
 # Phase 7 hardening: run unprivileged (ADR-004). The base image has no

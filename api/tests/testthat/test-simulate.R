@@ -41,22 +41,28 @@ test_that("the shift ends inside 8h30 and the break is taken once", {
 test_that("baseline accepts everything, policy follows the recommendation", {
   plant_sim_data()
   on.exit(unplant_sim_data(), add = TRUE)
-  with_accept_all_policy({
-    start <- sim_start_datetime()
-    base <- simulate_day(7, "HV0005", start, 61L, "baseline")
-    expect_true(all(base$decisions$accepted))
-    expect_true(all(base$decisions$model_recommended))
+  # with_accept_all_policy takes an expression, so the two mocks are siblings
+  # in this frame rather than nested. Nesting them used to work only because
+  # assign() into globalenv is order-independent; with local_mocked_bindings
+  # the outer frame restores first and the inner restore then tries to write a
+  # binding that is already locked again ("cannot change value of locked
+  # binding").
+  start <- sim_start_datetime()
+  base <- with_accept_all_policy(
+    simulate_day(7, "HV0005", start, 61L, "baseline")
+  )
+  expect_true(all(base$decisions$accepted))
+  expect_true(all(base$decisions$model_recommended))
 
-    # Same day, a policy that never recommends: nothing is accepted.
-    orig <- get("policy_probability", envir = globalenv())
-    assign("policy_probability", function(frame) rep(0.1, nrow(frame)),
-           envir = globalenv())
-    on.exit(assign("policy_probability", orig, envir = globalenv()), add = TRUE)
-    pol <- simulate_day(7, "HV0005", start, 61L, "policy")
-    expect_false(any(pol$decisions$accepted))
-    expect_true(all(pol$decisions$model_recommended == FALSE))
-    expect_equal(wage_per_hour(pol$decisions), 0)
-  })
+  # Same day, a policy that never recommends: nothing is accepted.
+  local_mocked_bindings(
+    policy_probability = function(frame) rep(0.1, nrow(frame)),
+    .package = "taxiapi"
+  )
+  pol <- simulate_day(7, "HV0005", start, 61L, "policy")
+  expect_false(any(pol$decisions$accepted))
+  expect_true(all(pol$decisions$model_recommended == FALSE))
+  expect_equal(wage_per_hour(pol$decisions), 0)
 })
 
 test_that("the WAV rule only offers non-WAV trips", {

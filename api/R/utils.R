@@ -1,6 +1,16 @@
 # Shared helpers for the API (section 5.1): error responses, JSON body
 # parsing, validation predicates and the JSON serializer used by every route.
 
+# data.table::cedta() -- "calling environment depends on this assignment" --
+# asks the CALLING package whether it wants data.table semantics for
+# `x[i, on = ...]`. A namespace it does not recognise gets the call silently
+# downgraded to `[.data.frame`, which dies with "invalid subscript type 'list'"
+# deep inside the join. This used to work only because the code lived in
+# globalenv, which cedta() always allows; moving it into a package (ADR-0007)
+# is what exposed it. The dot keeps it out of exportPattern("^[^\\.]").
+.datatable.aware <- TRUE
+
+
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
 # The dev container exports no TZ, so R reads the session zone as "" and

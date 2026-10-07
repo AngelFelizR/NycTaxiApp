@@ -18,6 +18,9 @@ in pkgs.mkShell {
   #   yaml          -- read the contract
   #   jsonvalidate  -- real JSON Schema validation, via
   #   V8            -- the embedded engine ajv runs in
+  #   pkgload       -- load_all (ADR-0007); the dev shell has no installed
+  #   covr          -- taxiapi, the image does
+  #                   -- section 10's coverage numbers
   buildInputs = [
     pkgs.R
     rApi
@@ -25,6 +28,8 @@ in pkgs.mkShell {
     pkgs.rPackages.yaml
     pkgs.rPackages.jsonvalidate
     pkgs.rPackages.V8
+    pkgs.rPackages.pkgload
+    pkgs.rPackages.covr
   ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"

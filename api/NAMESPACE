@@ -1,0 +1,20 @@
+# taxiapi is a service, not a library with a published API surface: everything
+# that is not private is exported, and the entry points (api/plumber.R and
+# api/tests/testthat/helper-load.R) attach the dependencies exactly as they
+# did when the code was sourced file by file.
+#
+# Deliberately no `import()`. The code calls both namespaced functions
+# (`pool::...`) and bare ones (`DBI::dbExecute` style helpers from attached
+# packages); declaring twenty imports by hand without roxygen risks name
+# conflicts for no gain -- `R CMD check` is not part of this repository's
+# gate. Recorded in ADR-0007.
+exportPattern("^[^\\.]")
+
+# A package must say which S3 methods it defines: dispatch does not find
+# `prep.step_join_geospatial_features` in a namespace by magic, and when the
+# code was sourced into globalenv it worked only because globalenv is where
+# UseMethod looks first. recipes owns three of these generics, base owns print.
+S3method(prep, step_join_geospatial_features)
+S3method(bake, step_join_geospatial_features)
+S3method(required_pkgs, step_join_geospatial_features)
+S3method(print, step_join_geospatial_features)

@@ -123,10 +123,8 @@ test_that("the stateless endpoints answer with the promised bodies", {
     tree = structure(list(), class = "fake_tree"),
     valid_hours = data.frame(week_cycle = c(17L, 18L))
   )
-  orig_high <- start_is_high_value
-  assign("start_is_high_value", function(...) TRUE, envir = globalenv())
-  on.exit(assign("start_is_high_value", orig_high, envir = globalenv()),
-          add = TRUE)
+  local_mocked_bindings(start_is_high_value = function(...) TRUE,
+                        .package = "taxiapi")
   response <- fake_response()
   validate_trip_start_handler(
     fake_request(ct), response,
