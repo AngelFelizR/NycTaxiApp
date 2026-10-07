@@ -1,9 +1,7 @@
-# Load the code under test (the app is not a package, so we source R/ by hand).
-# testthat runs with the working directory set to tests/testthat.
-#
-# Mirrors app.R exactly: everything under R/ (Shiny autoloads the top level of
-# that directory but never descends into R/modules/), then the modules. All
-# files only define functions, so the alphabetical order is safe.
+# Load the code under test. testthat runs with the working directory set to
+# tests/testthat; app.R is mirrored exactly (ADR-0007): the package, never a
+# pile of source() calls -- R/ is flat now, and R/_disable_autoload.R stops
+# Shiny from loading a second copy into the test environment.
 suppressPackageStartupMessages({
   library(shiny)
   library(bslib)
@@ -17,12 +15,14 @@ app_dir <- normalizePath(file.path("..", ".."))
 # curve_labels(). Also makes R/shared_config.R's candidate loop a no-op.
 source(file.path(app_dir, "..", "shared", "load.R"))
 
-for (rel in c(
-  list.files(file.path(app_dir, "R"), pattern = "\\.[rR]$"),
-  file.path("modules", list.files(file.path(app_dir, "R", "modules"),
-                                  pattern = "\\.[rR]$"))
-)) {
-  source(file.path(app_dir, "R", rel))
+# Under covr (R_COVR is set) an instrumented copy of taxiapp has been
+# installed into a temporary library and has to be the one that runs;
+# load_all() would overwrite it with uninstrumented source and report 0 %.
+if (nzchar(Sys.getenv("R_COVR"))) {
+  library(taxiapp)
+} else {
+  pkgload::load_all(app_dir, export_all = TRUE, helpers = FALSE,
+                    attach_testthat = FALSE, quiet = TRUE)
 }
 
 # The tests run inside the dev container, where .env lives one level up.

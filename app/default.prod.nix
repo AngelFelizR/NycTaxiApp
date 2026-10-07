@@ -14,7 +14,10 @@ let
   rApp = import ../nix/r-app.nix { inherit pkgs; withDev = false; };
 in pkgs.mkShell {
   R_LIBS_SITE = "${rApp}/library";
-  buildInputs = [ systemPackages rApp ];
+  # The image installs taxiapp and takes the library() branch; this shell has
+  # no installed copy, so app/app.R falls back to pkgload::load_all(). Kept
+  # out of nix/r-app.nix -- that one is the image's layer.
+  buildInputs = [ systemPackages rApp pkgs.rPackages.pkgload ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
     then "${pkgs.glibcLocales}/lib/locale/locale-archive"

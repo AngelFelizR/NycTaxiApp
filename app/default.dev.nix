@@ -18,8 +18,12 @@ let
   testTools = import ../nix/test-tools.nix { inherit pkgs; };
 in pkgs.mkShell {
   # Single merged library dir for every UI package (buildEnv), in front of
-  # whatever the R wrapper would add.
-  R_LIBS_SITE = "${rApp}/library";
+  # whatever the R wrapper would add. testTools is a second library since
+  # shinytest2 moved out of nix/r-shiny.nix (ADR-0007) -- R only sees what
+  # R_LIBS_SITE names, so leaving it out made the flow test skip with
+  # "{shinytest2} is not installed" while the package was right there in the
+  # shell.
+  R_LIBS_SITE = "${rApp}/library:${testTools}/library";
   buildInputs = [ systemPackages rApp testTools ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"

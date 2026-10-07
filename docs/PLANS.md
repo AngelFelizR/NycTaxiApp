@@ -68,9 +68,9 @@ today.
 | Dev-only packages | out of the runtime sets: `shinytest2` moves from `nix/r-shiny.nix` to `nix/test-tools.nix` |
 | Stubs | the `assign(..., globalenv())` overrides stop reaching the code once it lives in a namespace → `local_mocked_bindings(..., .package = ...)` |
 
-### Phase 1 — `api/`
+### Phase 1 — `api/` — **done** (commit `f12da8b`)
 
-1. **`R CMD INSTALL` into a temp library, first**, before touching anything.
+1. ~~**`R CMD INSTALL` into a temp library, first**~~ — passed before the move., before touching anything.
    This has never been tried and it is the load-bearing step; if it fails, the
    plan changes here.
 2. Flatten `api/R/` (30 files): `db_*`, `ml_*`, `endpoint_*`,
@@ -97,7 +97,7 @@ today.
     (ran the whole suite green but returned an empty coverage object), and
     doing nothing.
 
-### Phase 2 — `app/`
+### Phase 2 — `app/` — **done** (commit that ships it)
 
 Same shape, plus:
 
@@ -114,13 +114,13 @@ Same shape, plus:
 
 ### Phase 3 — coverage (§10)
 
-1. `api/tests/coverage.R` driving `covr::package_coverage()`.
+1. `api/tests/coverage.R` driving `covr::package_coverage()`. *(not started)*
 2. A CI step in `test-api` that writes the number to the step summary.
 3. **Measure before enforcing.** The first run only reports; the §10
    thresholds (60 % global, 100 % on the seven critical files) are set once
    the real number is known.
 
-### Verification, in order
+### Verification, in order *(steps 1-3 done; 4-5 pending)*
 
 1. `R CMD INSTALL` clean for `api/`, then `app/`.
 2. Suites: `api/`, `share/`, `app/`, `integration/` — all green.

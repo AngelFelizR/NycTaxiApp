@@ -1,0 +1,8 @@
+# taxiapp is a service, not a library with a published API surface: everything
+# that is not private is exported. app.R and tests/testthat/helper-load.R
+# attach the dependencies exactly as they did when the code was sourced file
+# by file (ADR-0007).
+#
+# Deliberately no `import()` -- see ADR-0007: no roxygen here to generate
+# them, and R CMD check is not part of the gate.
+exportPattern("^[^\\.]")

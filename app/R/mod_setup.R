@@ -4,7 +4,7 @@
 # show a busy state while the call is in flight.
 #
 # The only dynamic structure is the confirm modal (6.5), which lives in
-# modules/mod_confirm_modal.R and is opened by app.R once the day exists.
+# mod_confirm_modal.R and is opened by app.R once the day exists.
 
 mod_setup_ui <- function(id) {
   ns <- NS(id)

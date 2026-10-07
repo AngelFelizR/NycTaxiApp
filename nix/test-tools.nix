@@ -11,5 +11,10 @@
     name = "test-tools";
     paths = builtins.attrValues {
       inherit (pkgs) chromium;
+      # The flow test drives shinytest2 through chromote/chromium. It used to
+      # live in nix/r-shiny.nix, which is a layer of the production image, so
+      # the UI shipped a browser driver it never runs (ADR-0007). Only the
+      # development shells import this file.
+      inherit (pkgs.rPackages) shinytest2;
     };
   }

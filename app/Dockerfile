@@ -9,11 +9,12 @@
 #
 #   docker build -f app/Dockerfile -t ghcr.io/angelfelizr/nyc-taxi-shiny:latest .
 #
-# `withDev = false` drops nix/r-dev.nix: no testthat, no callr and no
-# plumber2 (plumber2 only exists for dev/mock_api.R, which is not deployed).
-# shinytest2 still arrives through nix/r-shiny.nix -- see the follow-up in
-# AGENTS.md; the browser itself does not, chromium lives in nix/test-tools.nix
-# and no image imports it.
+# `withDev = false` drops nix/r-dev.nix: no testthat, no callr, no plumber2
+# (plumber2 only exists for dev/mock_api.R, which is not deployed) and no
+# pkgload. shinytest2 left nix/r-shiny.nix for nix/test-tools.nix (ADR-0007),
+# so the UI image no longer ships a browser driver it never runs; the browser
+# itself never did -- chromium lives in nix/test-tools.nix too and no image
+# imports it.
 ###############################################################################
 
 ARG NIX_IMAGE=nixos/nix:2.35.2
@@ -54,7 +55,9 @@ ENV PATH="/opt/system/bin:${PATH}" \
     FONTCONFIG_FILE="/opt/system/etc/fonts/fonts.conf" \
     FONTCONFIG_PATH="/opt/system/etc/fonts" \
     XDG_DATA_DIRS="/opt/system/share:/opt/system/lib/X11/xkb" \
-    R_LIBS_SITE="/opt/r/library"
+    # /opt/r-lib holds taxiapp, installed below from the source in the image
+    # (ADR-0007); /opt/r/library is the Nix package set.
+    R_LIBS_SITE="/opt/r-lib:/opt/r/library"
 
 # Layout matters. app.R runs with cwd = /app/app and R/shared_config.R looks
 # for ../shared/load.R, so shared/ has to be its sibling -- the same shape the
@@ -63,6 +66,16 @@ ENV PATH="/opt/system/bin:${PATH}" \
 WORKDIR /app
 COPY app/ /app/app/
 COPY shared/ /app/shared/
+
+# ADR-0007: the app runs an installed package. Installed AFTER shared/ is in
+# place because R/shared_config.R sources shared/load.R and strings.R bakes
+# its label_curve_* aliases from it at install time -- changing a curve label
+# has to invalidate this layer, or the card would show the old text. Before
+# USER below: /opt/r-lib has to be writable. pkgload is not here; the image
+# takes the library() branch precisely because the package is installed.
+RUN mkdir -p /opt/r-lib \
+ && R CMD INSTALL --library=/opt/r-lib /app/app \
+ && rm -rf /tmp/* /tmp/..?* /tmp/.[!.]*
 
 
 # Phase 7 hardening: run unprivileged (ADR-004). The base image has no

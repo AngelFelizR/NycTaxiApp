@@ -41,7 +41,7 @@ test_that("the notice covers every item 9.1 requires", {
 })
 
 test_that("Setup and the footer both link to it", {
-  setup <- paste(readLines(file.path(app_dir, "R", "modules", "mod_setup.R"),
+  setup <- paste(readLines(file.path(app_dir, "R", "mod_setup.R"),
                            warn = FALSE), collapse = "\n")
   expect_match(setup, 'href = "privacy.html"', fixed = TRUE)
 

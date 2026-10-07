@@ -313,7 +313,23 @@ goes where.
   no longer reach a namespace binding. `pkgload` and `covr` were added to the
   dev shells only. This is what makes section 10's coverage measurable.
 
+- **`app/` is an R package too** (`taxiapp`, same decision as `api/` in
+  ADR-0007): `NAMESPACE`, `R/` flat — the nine files that lived in
+  `R/modules/` are now siblings of the rest — `R CMD INSTALL` in the image and
+  `library()` at boot, `pkgload::load_all()` in development. A new
+  `app/R/_disable_autoload.R` stops Shiny's `loadSupport()` from sourcing the
+  directory into the environment `app.R` runs in, which would leave two copies
+  of every object (including `constants_state`).
+- **`shinytest2` moved from `nix/r-shiny.nix` to `nix/test-tools.nix`**, so
+  the UI image stops carrying a browser driver it never runs. The dev shell
+  names it in `R_LIBS_SITE` — R only sees what that variable names, and
+  leaving it out made the flow test skip with "{shinytest2} is not installed".
+
 ### Changed
+- **`app/R/modules/` is gone.** §6.2 of the master document draws that
+  directory, and an R package cannot have one: R ignores subdirectories of
+  `R/`, which is exactly why the modules had to move. Annotated here; the
+  document is not edited.
 
 - **`plumber2`'s `@serializer png` is a graphics serializer: it discards
   `response$body`.** It opens a device, captures whatever was drawn and
@@ -682,6 +698,16 @@ goes where.
   in different frames; the inner restore then wrote a binding the outer one
   had already re-locked ("cannot change value of locked binding"). The two
   mocks are siblings now.
+
+- `app/R/constants.R` carried two `§` characters, and `pkgload` reads R files
+  through a path that does not accept them: it truncated the file at byte 777,
+  so `app_data_dir()`, `load_env_file()` and everything after line 14 silently
+  did not exist in the package while the other 15 files loaded fine. It was
+  the only R file in the repository with non-ASCII bytes. The comments now say
+  "section 8.3".
+- Moving `shinytest2` out of `nix/r-shiny.nix` without adding it to
+  `app/default.dev.nix`'s `R_LIBS_SITE` made the flow test skip instead of
+  fail, which is how the omission was found.
 
 ### Fixed
 

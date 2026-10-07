@@ -16,7 +16,10 @@ let
   rApi = import ../nix/r-api.nix;
 in pkgs.mkShell {
   R_LIBS_SITE = "${rApi}/library";
-  buildInputs = [ systemPackages rApi ];
+  # The image installs taxiapi and takes the library() branch; this shell has
+  # no installed copy, so api/plumber.R falls back to pkgload::load_all().
+  # Nothing in nix/r-api.nix changes -- that one is the image's layer.
+  buildInputs = [ systemPackages rApi pkgs.rPackages.pkgload ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
     then "${pkgs.glibcLocales}/lib/locale/locale-archive"

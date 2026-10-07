@@ -1,20 +1,20 @@
 # Decide as Taxi Driver For A Day -- thin Shiny client for a plumber2 API.
 # UI + non-blocking API calls (httr2 running in mirai daemons). No domain logic.
 #
-# Shiny autoloads R/*.R into the shared environment that is this file's parent,
-# but it turns that off when it mistakes the directory for a package (which
-# shinytest2 does: DESCRIPTION documents the dependencies, the app is not a
-# package). So load them ourselves if they did not arrive. Either way the
-# modules under R/modules/ -- which Shiny never descends into -- are sourced
-# here with local = TRUE, so everything ends up in this app environment and a
-# module sees its peers plus R/*.R.
-if (!exists("load_env_file", inherits = TRUE)) {
-  for (f in sort(list.files("R", pattern = "\\.[rR]$", full.names = TRUE))) {
-    source(f, local = TRUE)
-  }
-}
-for (f in sort(list.files("R/modules", pattern = "\\.[rR]$", full.names = TRUE))) {
-  source(f, local = TRUE)
+# The package, loaded exactly once (ADR-0007). R/ holds
+# _disable_autoload.R, which stops Shiny's loadSupport() from sourcing this
+# directory into the environment this file is evaluated in: two copies of
+# every object -- including constants_state, which must be exactly one -- is
+# how a module ends up disagreeing with app.R about state. The image installs
+# the package (app/Dockerfile: R CMD INSTALL) so production takes the
+# library() branch; a development shell has no installed copy and loads the
+# source instead, with pkgload from nix/r-dev.nix. cwd is the app directory
+# in every entry point (runApp, the Docker CMD and shinytest2's AppDriver).
+if (requireNamespace("taxiapp", quietly = TRUE)) {
+  suppressPackageStartupMessages(library(taxiapp))
+} else {
+  pkgload::load_all(".", export_all = TRUE, helpers = FALSE,
+                    attach_testthat = FALSE, quiet = TRUE)
 }
 library(shiny)
 library(bslib)

@@ -6,7 +6,7 @@
 
 ## Context
 
-The Results screen (`app/R/modules/mod_results.R`) and the share card
+The Results screen (`app/R/mod_results.R`) and the share card
 (`share/R/render_png.R`) draw the *same* three cumulative curves. Section 7.1
 of the master document only fixes their meaning and order ("3 curvas
 acumuladas (user/policy/baseline)"), not their colour, so both implementations

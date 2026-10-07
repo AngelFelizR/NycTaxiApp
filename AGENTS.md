@@ -33,7 +33,7 @@ de vuelta a lo genérico (sin `chromium`) y `r-dev.nix` sin `devtools`/
 mapa con `leafletProxy`, Accept/Reject) y `mod_sensitivity` (selectize
 server-side + `renderGirafe`) extraídos de `mod_trips`, que ahora es la
 pantalla con sidebar 3/9, KPIs, barra de *pending time* y footer de atajos de
-teclado (`www/js/shortcuts.js`); todos los módulos viven en `R/modules/`;
+teclado (`www/js/shortcuts.js`); todos los módulos viven en `R/` (§6.2 dibujaba `R/modules/`, ver arriba);
 con tests unitarios y de flujo. **Fase 6 (mitad de `app/`) hecha:** `mod_results`
 con los 6 KPIs, las 3 curvas, el percentil, la insignia de semilla y los
 detalles técnicos + `mod_feedback`; la jornada termina en `POST /finish`
@@ -86,12 +86,13 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   `pkgs-app.nix`.
   **Agregados:** `nix/r-app.nix` = la UI entera en una expresión
   (`nix-build nix/r-app.nix`, lo que consumirá la imagen de la fase 7) ·
-  `nix/test-tools.nix` = **solo** el navegador de `shinytest2`.
+  `nix/test-tools.nix` = **solo** lo que las pruebas necesitan: el
+  navegador **y** `shinytest2`, fuera de la imagen desde ADR-0007.
   **Sin dependencias huérfanas:** `system.nix` es genérico (R, locales, fuentes)
   y de ahí salió `chromium` (**1,3 GB**: 3701 → 2428 MB de cierre), de modo que
   ninguna imagen que reutilice esa capa herede un navegador que nunca ejecuta;
-  `r-dev.nix` perdió `devtools`/`roxygen2` (75 MB: la app no es un paquete, no
-  tiene `NAMESPACE` ni `man/`). El shell raíz excluye `r-api.nix`,
+  `r-dev.nix` perdió `devtools`/`roxygen2` (75 MB: no hacen falta — hay
+  `NAMESPACE` pero no roxygen, nada lo genera). El shell raíz excluye `r-api.nix`,
   `r-app.nix` y `test-tools.nix`. **Fase 7:** existen los tres
   `default.prod.nix` (`api/`, `app/`, `share/`); `nix/r-app.nix` acepta
   `withDev = false` para que la imagen no arrastre `r-dev.nix`, y
@@ -158,7 +159,7 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   `DESCRIPTION` y su `tests/` (ver `docs/REPO_DECISION.md`).
 
 ## `mod_share`: los botones y el email de Results (6.5, 7.3, 7.4)
-- `app/R/modules/mod_share.R` vive **dentro** de `mod_results` (igual que
+- `app/R/mod_share.R` vive **dentro** de `mod_results` (igual que
   `mod_feedback`): `mod_share_ui(ns("share"))` + `mod_share_server("share",
   estado)`, así que los ids son `results-share-*`.
 - **Los tres enlaces son `<a>` con `href="#"` y el servidor los apunta** cuando
@@ -186,16 +187,20 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 `contract/`.
 - `app/tests/testthat/helper-load.R` usa `file.path("..", "..")` → resuelve contra
   `app/`; ejecutar los tests con cwd = `app/`.
-- `NAMESPACE`, `man/` y `.Rbuildignore` (restos de la plantilla golem) fueron
-  eliminados: no reintroducirlos. `DESCRIPTION` documenta dependencias; no es un
-  paquete instalable.
-- **Todos los módulos viven en `R/modules/`** (§6.2): `mod_setup`, `mod_trips`,
-  `mod_trip_card`, `mod_sensitivity`, `mod_results`, `mod_header` y
-  `mod_confirm_modal`. Shiny solo auto-carga el nivel superior de `R/`, así que
-  `app.R` hace `source(..., local = TRUE)` de `R/modules/`; `helper-load.R`
-  recorre ambos directorios, así que **añadir un módulo no exige tocar los
-  tests**. En las funciones `*_ui` se usa `ns <- NS(id)`; en el servidor la
-  única forma es `session$ns(...)` — `ns` no existe ahí y falla en runtime.
+- **`app/` es un paquete** (`taxiapp`): `DESCRIPTION` + `NAMESPACE`
+  (`exportPattern` sin `import()`, sin S3 methods) + `R/` **plano** — ADR-0007.
+  La imagen lo instala con `R CMD INSTALL` y `app.R` hace `library()`; un shell
+  de desarrollo no lo tiene instalado y cae en `pkgload::load_all()`. Añadir un
+  módulo ya no exige tocar nada: se suelta en `R/`.
+- **§6.2 dibuja `R/modules/`, y eso ya no existe** (R ignora las subcarpetas de
+  `R/`, así que un paquete no puede tenerlas). Divergencia anotada en
+  `CHANGELOG.md`; el documento no se toca.
+- **`app/R/_disable_autoload.R` no es código**: es la marca que hace que
+  `shiny::loadSupport()` deje de fuentear `R/` en el entorno donde vive
+  `app.R`. Sin ella habría dos copias de cada objeto — entre ellos
+  `constants_state`, que tiene que ser exactamente uno. No renombrar.
+- En las funciones `*_ui` se usa `ns <- NS(id)`; en el servidor la única
+  forma es `session$ns(...)` — `ns` no existe ahí y falla en runtime.
 - El `.Rprofile` (guardas de Nix que bloquean `install.packages()`) está en la
   raíz y R solo lo carga si el cwd es la raíz.
 - **`app/www/privacy.html`** (§9.1, obligatorio antes de publicar): página
@@ -207,9 +212,9 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 ## Comandos (cwd = `app/` salvo indicación)
 - Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"`
   (unit + flujo). **El recuento vive en la salida y en CI, no aquí.**
-  NO `test_check()`/`devtools::test()`: no es un paquete instalado;
-  `helper-load.R` hace `source()` a mano de todo `R/*.R` y `R/modules/*.R`
-  (el orden importa). En el shell **raíz** todo pasa salvo el test de flujo:
+  NO `test_check()`/`devtools::test()`: `helper-load.R` hace `load_all()`
+  (o `library(taxiapp)` cuando `R_COVR` está, que es lo que hace covr — sin
+  esa rama la cobertura saldría 0). En el shell **raíz** todo pasa salvo el test de flujo:
   ese shell no lleva `test-tools.nix`, y se salta con un mensaje que apunta al
   shell correcto.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
@@ -370,7 +375,7 @@ Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar c
   `estado_ctx(estado)` construye el contexto de cada llamada.
 - El catálogo de los 18 endpoints (`X-Internal-Key`, `X-Resume-Code`, rate
   limit) está en §5.2 y en `contract/openapi.yaml`, que es lo que el cliente
-  implementa. `R/modules/mod_results.R` es la pantalla final (6 KPIs,
+  implementa. `R/mod_results.R` es la pantalla final (6 KPIs,
   percentil, insignia de semilla); la fase 6 pendiente es **el envío real por
   SMTP** — los botones y el `share/` ya existen y se documentan más abajo.
 - **El log JSON de §11 no se puede construir con `access_log_format`.** Ese
@@ -661,10 +666,9 @@ Se interpreta como "no es un cliente de la API". Divergencia anotada en
 
 - **Peso de las imágenes:** ver "Peso de las imágenes" arriba (~2 GB de
   toolchain por imagen que un runtime no usa).
-- `nix/r-shiny.nix` sigue metiendo `shinytest2` en el set de runtime, así que
-la imagen de la UI lo arrastra (el navegador no: `chromium` vive en
-`nix/test-tools.nix`). Moverlo ahí exige rehacer `app/default.dev.nix`; lo
-mismo aplica a `plumber2`, que la app solo usa en `dev/mock_api.R`.
+- ~~`shinytest2` en el set de runtime de la UI~~ — resuelto (ADR-0007): vive
+  en `nix/test-tools.nix` junto al navegador. Ojo: `app/default.dev.nix` tiene
+  que nombrarlo en `R_LIBS_SITE`, o R no lo ve y el test de flujo se salta.
 
 ## Fuente de verdad y prioridad entre documentos
 - **Documento maestro = decisiones de arquitectura; no se edita.** Si el código

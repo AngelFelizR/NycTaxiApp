@@ -8,9 +8,9 @@
 # proves init_estado() hands out independent objects.
 
 app_source_files <- function() {
-  c(list.files(file.path(app_dir, "R"), pattern = "\\.[rR]$", full.names = TRUE),
-    list.files(file.path(app_dir, "R", "modules"), pattern = "\\.[rR]$",
-               full.names = TRUE))
+  # R/ is flat since ADR-0007: the modules live here too, so one directory is
+  # the whole surface. _disable_autoload.R is comments only, harmless to scan.
+  list.files(file.path(app_dir, "R"), pattern = "\\.[rR]$", full.names = TRUE)
 }
 
 # Comments are stripped so a note explaining why there is no `<<-` does not

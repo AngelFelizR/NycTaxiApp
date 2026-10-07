@@ -14,7 +14,6 @@
         # ZonesShapes.qs2 (same file the API reads) and the flow test.
         shinyjs
         qs2
-        shinytest2
 
         # Connecting to model API
         httr2

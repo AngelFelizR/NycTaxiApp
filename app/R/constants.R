@@ -11,7 +11,7 @@ constants_state <- new.env(parent = emptyenv())
 # Where the read-only data volume can be (6.1.3: everything static is
 # preloaded from it, so the app never waits on the network). Exposed as its own
 # function because the list *is* the contract between this code and whoever
-# mounts the volume -- §8.3 mounts it at /app/data, §6.1.3 names
+# mounts the volume -- section 8.3 mounts it at /app/data, section 6.1.3 names
 # /srv/nyctaxi/data, and the dev compose mounts it at /data. Missing one of
 # them means an empty map in production with nothing in the logs to say why.
 app_data_candidates <- function() {
