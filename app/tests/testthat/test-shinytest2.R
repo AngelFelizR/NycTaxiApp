@@ -63,6 +63,12 @@ withr::local_envvar(c(
   TAXI_API_URL = mock_url,
   API_INTERNAL_KEY = mock_key,
   ENV = "development",
+  # bslib copies its JS bundle into tempdir() when a session starts, and the
+  # reloaded session was failing that copy with "Permission denied" on the
+  # runner (the first one worked). nix-shell points TMPDIR at a directory of
+  # its own under the runner's work dir; /tmp is the one path that is writable
+  # everywhere, and the DIAG block reports tempdir() if this ever moves.
+  TMPDIR = "/tmp",
   # AppDriver refuses to start when testthat thinks we are on CRAN.
   NOT_CRAN = "true"
 ))
@@ -107,6 +113,11 @@ loaded <- tryCatch(
       ))
     }
     probe("url", app$get_url)
+    probe("tmp", function() paste0(
+      "TMPDIR=", Sys.getenv("TMPDIR", "<unset>"),
+      " tempdir=", tempdir(),
+      " writable=", file.access(tempdir(), 2) == 0
+    ))
     probe("body", function() app$get_js(
       "document.body ? document.body.innerText.replace(/\\s+/g,' ').slice(0,400) : 'NO BODY'"
     ))
