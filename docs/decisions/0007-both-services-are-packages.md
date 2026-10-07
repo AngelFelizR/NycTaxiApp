@@ -43,11 +43,14 @@ with `library()`.**
   prefix, which is what the tree used to say.
 - **`NAMESPACE` exports everything and declares the S3 methods**, nothing
   else: `exportPattern("^[^\\.]")` plus the four `S3method()` entries for
-  `prep`/`bake`/`required_pkgs`/`print` on `step_join_geospatial_features`.
-  No `import()` — the entry points attach dependencies exactly as they did
-  when the code was sourced, and hand-writing twenty imports without roxygen
-  buys a `R CMD check` this repository does not run, at the cost of possible
-  name conflicts.
+  `prep`/`bake`/`required_pkgs`/`print` on `step_join_geospatial_features`,
+  and the three `importFrom(recipes, …)` those entries require — a namespace
+  resolves the generic at load time, and without them `R CMD INSTALL` dies
+  with "object 'prep' not found whilst loading namespace". No broad `import()`:
+  the entry points attach dependencies exactly as they did when the code was
+  sourced, and hand-writing twenty imports without roxygen buys a
+  `R CMD check` this repository does not run, at the cost of possible name
+  conflicts.
 - **One loader, selected by what is available.** `plumber.R` does
   `library(taxiapi)` when an installed copy exists and `load_all()` otherwise,
   so a development shell needs no install step and an image needs no pkgload.

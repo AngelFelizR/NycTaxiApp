@@ -325,6 +325,23 @@ goes where.
   names it in `R_LIBS_SITE` — R only sees what that variable names, and
   leaving it out made the flow test skip with "{shinytest2} is not installed".
 
+- **Section 10's coverage, measured for the first time.**
+  `api/dev/coverage.R` drives `covr::package_coverage()` and prints the global
+  figure plus the seven critical files the section names. Getting there needed
+  three things the package now provides: a `NAMESPACE`, `tests/testthat.R`
+  anchored on its own file (covr runs it from a temporary tree, where
+  `tests/testthat` does not exist), and `TAXI_API_DIR` exported by the script
+  so `helper-load.R` and `contract_path()` follow the tests back to the
+  repository instead of resolving `..` against the temp install. CI runs it
+  with `COVERAGE_FAIL_UNDER=60`.
+- **The first measurement**: 75.0% globally, above the 60% section 10 asks
+  for. Four of the seven critical files are short of the 100% it also asks
+  for — `db_migrations` 75.8%, `ml_simulate` 90.9%, `middleware_client_ip`
+  80.0%, `ml_outcome` 80.4% — and three files come back at 0%:
+  `middleware_request_context.R` (the section 11 logger), `ml_predict.R` and
+  `middleware_cors.R`. The per-file bar is reported but not enforced until
+  those are agreed; the global one is.
+
 ### Changed
 - **`app/R/modules/` is gone.** §6.2 of the master document draws that
   directory, and an R package cannot have one: R ignores subdirectories of
@@ -708,6 +725,14 @@ goes where.
 - Moving `shinytest2` out of `nix/r-shiny.nix` without adding it to
   `app/default.dev.nix`'s `R_LIBS_SITE` made the flow test skip instead of
   fail, which is how the omission was found.
+
+- `covr` was going to measure itself: it runs every `.R` file of `tests/`, so
+  a coverage script sitting there would have recursed forever. It lives in
+  `dev/` now, and a comment says why.
+- `package_coverage()` installed the package but could not run its tests: the
+  script resolved `tests/testthat` against whatever directory covr stood in.
+  It now resolves against its own location, which is also what a plain
+  `Rscript tests/testthat.R` wants.
 
 ### Fixed
 

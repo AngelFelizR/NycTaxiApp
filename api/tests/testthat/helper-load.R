@@ -23,7 +23,15 @@ suppressPackageStartupMessages({
   library(parsnip)
   library(plumber2)
 })
-api_dir <- normalizePath(file.path("..", ".."))
+# Where the repository's api/ is. Normally ".." from tests/testthat, but covr
+# installs the package into a temporary library and runs the INSTALLED copy of
+# these tests from there -- ".." would then be that temp tree, and everything
+# that resolves against the repository (contract/openapi.yaml, api/migrations,
+# .env) would silently point at nothing. dev/coverage.R exports TAXI_API_DIR
+# so the tests know where they really came from.
+api_dir <- Sys.getenv("TAXI_API_DIR", "")
+api_dir <- if (nzchar(api_dir)) normalizePath(api_dir) else
+  normalizePath(file.path("..", ".."))
 # The package, not a pile of source() calls (ADR-0007). The two branches are
 # not cosmetic: under covr (R_COVR is set) an instrumented copy of taxiapi has
 # been installed into a temporary library and has to be the one that runs --

@@ -170,6 +170,23 @@ jobs:
       - name: annotate failures
         if: failure()
         run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/api.log" "API tests"
+      # Section 10: ~60% globally, 100% on seven files. The global figure is
+      # enforced -- 75.0% when this landed. The per-file 100% is reported but
+      # not enforced: four of the seven were short on the first measurement,
+      # and a red job for a number nobody has agreed to fix is how a check
+      # becomes noise. dev/coverage.R turns enforcement on with
+      # COVERAGE_FAIL_UNDER when that changes.
+      - name: coverage (section 10)
+        working-directory: api
+        env:
+          COVERAGE_FAIL_UNDER: "60"
+        run: |
+          set -o pipefail
+          nix-shell default.dev.nix --run "Rscript dev/coverage.R" 2>&1 \
+            | tee "$RUNNER_TEMP/coverage.log"
+      - name: annotate coverage failures
+        if: failure()
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/coverage.log" "coverage"
 
   # ---------------------------------------------------------------------
   # test-shiny: app/default.dev.nix carries chromium through test-tools.nix.

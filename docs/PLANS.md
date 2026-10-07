@@ -112,13 +112,18 @@ Same shape, plus:
   `withDev = false`).
 - The app package name is already `taxiapp`.
 
-### Phase 3 — coverage (§10)
+### Phase 3 — coverage (§10) — **done**
 
-1. `api/tests/coverage.R` driving `covr::package_coverage()`. *(not started)*
-2. A CI step in `test-api` that writes the number to the step summary.
-3. **Measure before enforcing.** The first run only reports; the §10
-   thresholds (60 % global, 100 % on the seven critical files) are set once
-   the real number is known.
+1. `api/dev/coverage.R` drives `covr::package_coverage()` (in `dev/`, not
+   `tests/`, because covr runs every file under `tests/`).
+2. A CI step in `test-api` writes it to the step summary and enforces
+   `COVERAGE_FAIL_UNDER=60`.
+3. **Measured**: 75.0% globally — above §10's 60%. Per-file the same section
+   asks for 100% on seven files and four are short (`db_migrations` 75.8%,
+   `ml_simulate` 90.9%, `middleware_client_ip` 80.0%, `ml_outcome` 80.4%), and
+   `middleware_request_context.R`, `ml_predict.R` and `middleware_cors.R` sit
+   at 0%. **Not enforced yet** — that is the follow-up: raise the four, cover
+   the section 11 logger, then add `COVERAGE_FAIL_CRITICAL=1`.
 
 ### Verification, in order *(steps 1-3 done; 4-5 pending)*
 

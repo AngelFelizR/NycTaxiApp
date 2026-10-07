@@ -3,12 +3,20 @@
 # api/tests/testthat/helper-load.R) attach the dependencies exactly as they
 # did when the code was sourced file by file.
 #
-# Deliberately no `import()`. The code calls both namespaced functions
-# (`pool::...`) and bare ones (`DBI::dbExecute` style helpers from attached
-# packages); declaring twenty imports by hand without roxygen risks name
-# conflicts for no gain -- `R CMD check` is not part of this repository's
-# gate. Recorded in ADR-0007.
+# No broad `import()`. The code calls namespaced functions (`pool::...`) and
+# bare ones from packages the entry point attaches, exactly as it did when the
+# files were sourced; declaring twenty imports by hand without roxygen risks
+# name conflicts for no gain, since `R CMD check` is not part of this
+# repository's gate. Recorded in ADR-0007.
+#
+# The three below are the exception, and they are not optional: a namespace
+# resolves the generic of every `S3method()` entry AT LOAD TIME, and without
+# it `R CMD INSTALL` dies with "object 'prep' not found whilst loading
+# namespace 'taxiapi'". `print` is generic in base and needs no import.
 exportPattern("^[^\\.]")
+importFrom(recipes, prep)
+importFrom(recipes, bake)
+importFrom(recipes, required_pkgs)
 
 # A package must say which S3 methods it defines: dispatch does not find
 # `prep.step_join_geospatial_features` in a namespace by magic, and when the

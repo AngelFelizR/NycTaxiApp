@@ -218,6 +218,13 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   ese shell no lleva `test-tools.nix`, y se salta con un mensaje que apunta al
   shell correcto.
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
+- **Cobertura de §10** (cwd = `api/`):
+  `nix-shell default.dev.nix --run "Rscript dev/coverage.R"`. Está en `dev/`
+  y no en `tests/` porque covr ejecuta todo `.R` de `tests/`: un script de
+  cobertura ahí se mediría a sí mismo. Exporta `TAXI_API_DIR` (los tests
+  corren sobre la **copia instalada** en un árbol temporal y sin eso `..` no
+  apunta al repo) y se exige el umbral global con `COVERAGE_FAIL_UNDER`; el
+  100 % de los siete ficheros críticos de §10 solo se reporta.
 - Tests del **cliente** API sin servidor: `httr2::with_mocked_responses()`
   (`app/tests/testthat/test-api_client.R`) — no confundir con los de la API.
 - Tests del **servicio share** (cwd = `share/`):
