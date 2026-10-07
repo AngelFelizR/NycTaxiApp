@@ -200,6 +200,24 @@ jobs:
           extra_nix_config: |
             substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
+      # This job has no binary cache for the app's package set, so Nix
+      # compiles from source -- and that step has failed twice now with
+      # "compilation failed for package 'brotli'" while the very same package
+      # built fine in another job on the same commit. Building the shell is
+      # retried on its own so a test failure is never retried and never
+      # reported as a build failure.
+      - name: build the test shell (retried)
+        working-directory: app
+        run: |
+          for i in 1 2 3; do
+            if nix-shell default.dev.nix --run "true"; then
+              echo "shell ready on attempt $i"
+              exit 0
+            fi
+            echo "shell attempt $i failed" >&2
+            sleep 15
+          done
+          exit 1
       - name: UI tests (unit + shinytest2 flow)
         working-directory: app
         run: |
