@@ -27,23 +27,21 @@ date.
   backup watch in `disk_check.sh`, and §11's structured request log.
 - **R6.1**: response-body conformance with the contract (ADR-0006) and the
   four real defects its first run found.
-- **CI**: five jobs run on a PR. Four are green (`test-contract`, `test-api`,
-  `test-share`, `test-integration`), `build-share` produces an image, and
-  `test-shiny` is the last red one (see below).
+- **CI**: five jobs green on one run (`test-contract`, `test-api` — including
+  the coverage step at `COVERAGE_FAIL_UNDER=60` — `test-share`,
+  `test-integration`, `test-shiny`), with the three image builds behind them.
 
 ### In progress
 
-- **R6.2 — the CI run itself.** Diagnostics are in place: `ci_report.sh`
-  turns a test log into public GitHub annotations, and every test job tees its
-  output.
-  - `test-shiny` fails waiting for `#setup-validate` **after** a
-    `window.location.reload()`. The `DIAG` line proves the data is fine in CI
-    (`app_data_dir` exists, `zones=263`, mock API answering) — the problem is
-    the reload itself. Visible difference: CI drives `/usr/bin/google-chrome`
-    while the shell provides Nix's `chromium`.
-  - Nix build flakes (`compilation failed for package 'brotli'`) took down
-    `test-integration` and `test-share` once each; both jobs now retry
-    building their shell as a separate step, never the tests.
+Nothing in flight. The CI history below explains how it got green:
+
+- Job logs need admin rights to read through the API, so `infra/scripts/ci_report.sh`
+  turns a test log into **public annotations** (`GET .../check-runs/{id}/annotations`)
+  and every test job tees its output. `DIAG` lines emitted by a test are
+  reported first and unconditionally — that is how `test-shiny`'s data
+  problem was separated from its reload problem.
+- The three Nix build flakes (`compilation failed for package 'brotli'`) were
+  fixed by retrying the shell build as its own step, never the tests.
 
 ---
 
