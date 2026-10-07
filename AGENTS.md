@@ -688,6 +688,10 @@ mismo aplica a `plumber2`, que la app solo usa en `dev/mock_api.R`.
   nada que cambie al añadir un test. El recuento vive en la salida de CI. Si
   una frase necesita un número para ser útil, el número no va aquí.
 - `docs/REPO_DECISION.md` = ADR monorepo vs. repos separados.
+- **`docs/PLANS.md` = el plan vivo**: qué está hecho, qué queda y por qué
+  (conversión a paquetes, R7, los dos trabajos pendientes que aún no tienen
+  ADR). No es una decisión, solo el camino — se actualiza al cambiar o
+  entregarse un plan, para que una sesión perdida no se lleve el To Do.
 
 ## Repositorio hermano `~/r-projects/NycTaxi` (referencia, solo lectura)
 Es el **prototipo original** (paquete R + artículos Quarto) del que este

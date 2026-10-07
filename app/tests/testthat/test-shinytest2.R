@@ -96,15 +96,28 @@ loaded <- tryCatch(
   app$wait_for_js("!!document.querySelector('#setup-validate')", timeout = 30000),
   error = function(e) {
     message("DIAG after reload: ", conditionMessage(e))
-    # What is on screen after the reload: a blank page (Shiny never
-    # reconnected), an error page or the app without that button are three
-    # different bugs and the condition message alone cannot tell them apart.
-    message("DIAG after reload: source=", tryCatch(
-      paste(grep("setup-|Shiny|error", strsplit(
-        gsub("[\n\r\t ]+", " ", app$get_source()), " ")[[1]],
-        value = TRUE, ignore.case = TRUE), collapse = " | "),
-      error = function(e2) paste("get_source failed:", conditionMessage(e2))
+    # What is on screen after the reload. A blank page (Shiny never
+    # reconnected), an error page and the app without that button are three
+    # different bugs, and the condition message alone cannot tell them apart.
+    # Every probe is guarded: this block only runs on the failure path.
+    probe <- function(label, expr) {
+      message("DIAG after reload: ", label, "=", tryCatch(
+        paste(as.character(expr()), collapse = " | "),
+        error = function(e2) paste("failed:", conditionMessage(e2))
+      ))
+    }
+    probe("url", app$get_url)
+    probe("body", function() app$get_js(
+      "document.body ? document.body.innerText.replace(/\\s+/g,' ').slice(0,400) : 'NO BODY'"
     ))
+    probe("shiny-connected", function() app$get_js(
+      "!!(window.Shiny && Shiny.shinyapp && Shiny.shinyapp.initialized)"
+    ))
+    probe("logs", function() {
+      lg <- app$get_logs()
+      if (is.null(lg) || nrow(lg) == 0) return("empty")
+      paste(utils::tail(paste0(lg$type, ": ", lg$message), 6), collapse = " || ")
+    })
     stop(e)
   }
 )
