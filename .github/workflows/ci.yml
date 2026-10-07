@@ -141,16 +141,21 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # GHCR only accepts lowercase repository names and the owner is
+      # AngelFelizR, so -- like build-api and friends -- the name is written
+      # out rather than derived from github.repository_owner.
       - name: image reference
         id: meta
-        run: echo "image=${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/nyc-taxi-dev:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        run: echo "image=${REGISTRY}/angelfelizr/nyc-taxi-dev:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.image }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ env.REGISTRY }}/angelfelizr/nyc-taxi-dev:latest
+          cache-from: type=gha,scope=dev
+          cache-to: type=gha,scope=dev,mode=max
 
   # ---------------------------------------------------------------------
   # test-contract: cheap and the contract is what every service reads, so it
