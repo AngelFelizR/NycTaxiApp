@@ -140,8 +140,20 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 12
+    # No .env exists in a fresh checkout (it is gitignored), so the values the
+    # compose gives the containers have to be given here instead. Without them
+    # the suite would connect to a host called "postgres" and every endpoint
+    # would 403 on an empty API_INTERNAL_KEY.
     env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: nyctaxi
+      POSTGRES_USER: nyctaxi
       POSTGRES_PASSWORD: nyctaxi
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "6379"
+      API_INTERNAL_KEY: ci-internal-key
+      IP_HASH_SALT: ci-ip-hash-salt
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
@@ -151,7 +163,13 @@ jobs:
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
       - name: API tests
         working-directory: api
-        run: nix-shell default.dev.nix --run "Rscript tests/testthat.R"
+        run: |
+          set -o pipefail
+          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
+            | tee "$RUNNER_TEMP/api.log"
+      - name: annotate failures
+        if: failure()
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/api.log" "API tests"
 
   # ---------------------------------------------------------------------
   # test-shiny: app/default.dev.nix carries chromium through test-tools.nix.
@@ -171,7 +189,13 @@ jobs:
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
       - name: UI tests (unit + shinytest2 flow)
         working-directory: app
-        run: nix-shell default.dev.nix --run "Rscript tests/testthat.R"
+        run: |
+          set -o pipefail
+          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
+            | tee "$RUNNER_TEMP/app.log"
+      - name: annotate failures
+        if: failure()
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/app.log" "test-shiny"
 
   # ---------------------------------------------------------------------
   # test-share: needs Redis (the cache and routes tests skip without it) but
@@ -181,6 +205,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.share == 'true' || needs.changes.outputs.nix == 'true'
+    # Same reason as test-api: no .env in a fresh checkout. test-routes.R
+    # sends this key to POST /render-card and the stub the test boots reads it
+    # from its own environment, so the value has to exist here.
+    env:
+      API_INTERNAL_KEY: ci-internal-key
     services:
       redis:
         image: redis:7-alpine
@@ -200,12 +229,18 @@ jobs:
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
       - name: share tests
         working-directory: share
-        run: nix-shell default.dev.nix --run "Rscript tests/testthat.R"
+        run: |
+          set -o pipefail
+          nix-shell default.dev.nix --run "Rscript tests/testthat.R" 2>&1 \
+            | tee "$RUNNER_TEMP/share.log"
+      - name: annotate failures
+        if: failure()
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/share.log" "test-share"
 
   # ---------------------------------------------------------------------
-  # test-integration: integration/ is still an empty skeleton (only
-  # .gitkeep). The job exists so the test is not forgotten when the package
-  # lands; until then it checks for a DESCRIPTION and reports nothing to do.
+  # test-integration: the three descriptions of the system against each
+  # other (contract <-> registered routes <-> client paths). No services: it
+  # only reads files, which is why it needs no Postgres or Redis.
   # ---------------------------------------------------------------------
   test-integration:
     runs-on: ubuntu-latest
@@ -213,13 +248,26 @@ jobs:
     if: needs.changes.outputs.integration == 'true'
     steps:
       - uses: actions/checkout@v4
+      # This job did not have this step: `nix-shell` does not exist on a
+      # GitHub runner, so it failed after five seconds with "command not
+      # found" rather than running a single test.
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
       - name: Run integration tests if the package exists
         run: |
           if [[ ! -f integration/DESCRIPTION ]]; then
             echo "integration/ has no DESCRIPTION yet -- nothing to run."
             exit 0
           fi
-          nix-shell default.nix -A shell --run "cd integration && Rscript tests/testthat.R"
+          set -o pipefail
+          nix-shell default.nix -A shell --run "cd integration && Rscript tests/testthat.R" 2>&1 \
+            | tee "$RUNNER_TEMP/integration.log"
+      - name: annotate failures
+        if: failure()
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/integration.log" "test-integration"
 
   # ---------------------------------------------------------------------
   # Images. Native ARM: the deployment VM is ARM and a Nix closure under QEMU
