@@ -22,7 +22,8 @@ mod_sensitivity_ui <- function(id) {
     conditionalPanel("output.idle_on", ns = ns,
       div(class = "text-center text-muted small", textOutput(ns("idle")))),
     conditionalPanel("output.plot_on", ns = ns,
-      card(ggiraph::girafeOutput(ns("plot"), height = 320)))
+      card(div(role = "img", `aria-label` = label_sensitivity_aria,
+               ggiraph::girafeOutput(ns("plot"), height = 320))))
   )
 }
 

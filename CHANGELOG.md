@@ -409,6 +409,20 @@ goes where.
   CI now holds both bars: `COVERAGE_FAIL_UNDER=60` and
   `COVERAGE_FAIL_CRITICAL=1`.
 
+- **Section 12, the parts a machine can check** (`app/tests/testthat/test-accessibility.R`):
+  `prefers-reduced-motion` collapses every animation duration in the app,
+  Bootstrap and Leaflet alike (the app's own `transition` on the pending-time
+  fill is the one it owns); both `girafe()` charts carry `role="img"` and an
+  `aria-label` that says what they show, because an SVG is a picture to a
+  screen reader; and every text pair in both themes is computed against WCAG
+  2.1 and must clear 4.5:1. The pending clock is asserted to print its hours
+  as text, so §3.11's "never colour alone" has a check. What stays manual
+  (`pa11y`, the 390px checklist, the WebAIM sign-off) is written down in the
+  runbook instead.
+- **`taxi_palette(mode)`**: the colours the app draws are now data rather than
+  two inline CSS blocks, so the contrast test reads the values the stylesheet
+  is built from. `theme_taxi()` renders the same rules from it.
+
 ### Changed
 - **§7.1 describes three layers for the card and there are now two.** The
   master document puts a Redis cache in front of the render and the edge in
@@ -829,6 +843,13 @@ goes where.
   moved into the development image: the rewrite replaced every job's `steps:`
   block and the coverage step was not among what it kept. Restored, inside
   the same image as the tests.
+
+- **Two colours failed section 12 and are fixed.** `#64748b`, used for
+  `.kpi-label` and `.kbd-footer`, reached 4.44:1 on the light surface and
+  3.41:1 on the dark one -- both under the 4.5:1 section 12 asks for, and no
+  single grey clears both (the light theme needs a darker value, the dark one
+  a lighter one). It is now `--taxi-muted-fg`, a per-theme token with
+  `#5b6678` / `#9aa4b2`, which clear 5.4:1 and 6.4:1.
 
 ### Fixed
 

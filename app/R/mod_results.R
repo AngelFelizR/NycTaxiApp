@@ -46,7 +46,10 @@ mod_results_ui <- function(id) {
 
       card(
         card_header(h4(label_history)),
-        ggiraph::girafeOutput(ns("plot_history"), height = 280)
+        # Section 12: role="img" + a label, or the chart is invisible to a
+        # screen reader.
+        div(role = "img", `aria-label` = label_history_aria,
+            ggiraph::girafeOutput(ns("plot_history"), height = 280))
       ),
       div(class = "text-center mt-2", textOutput(ns("percentile"))),
       div(class = "text-center text-muted small", textOutput(ns("percentile_note"))),

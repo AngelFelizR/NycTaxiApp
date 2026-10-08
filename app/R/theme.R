@@ -2,15 +2,61 @@
 # modules; www/css/custom.css keeps what Bootstrap cannot express (the red
 # field while a validation hint is visible).
 
-theme_taxi <- function(mode = c("light", "dark")) {
+# The palette as data (6.4, and section 12's "contrast verified").
+#
+# Every colour the app draws comes from here, so the contrast check in
+# tests/testthat/test-accessibility.R reads the same values the CSS is built
+# from rather than a copy of them that could drift. Values are the ones the
+# master document's palette table states; this file only decides where they
+# live and which mode they belong to.
+taxi_palette <- function(mode = c("light", "dark")) {
   mode <- match.arg(mode)
   light <- mode == "light"
+  list(
+    bg         = if (light) "#ffffff" else "#16171d",
+    fg         = if (light) "#1f2328" else "#e6e6ea",
+    primary    = brand_colour(if (light) "primary" else "primary_dark"),
+    surface    = if (light) "#f6f7f9" else "#1e2028",
+    border     = if (light) "#e3e6ea" else "#2c2f3a",
+    success_bg = if (light) "#d1f4dd" else "#1e4d2b",
+    success_fg = if (light) "#0a5c2b" else "#6ee7a0",
+    danger_bg  = if (light) "#fde2e4" else "#4a1a1a",
+    danger_fg  = if (light) "#8b1a1a" else "#f8a5a5",
+    # Secondary text (.kpi-label, .kbd-footer). One value cannot serve both
+    # themes: on the light surface #64748b reaches only 4.44:1 and on the
+    # dark one 3.41:1, both under section 12's 4.5:1 -- and no single grey
+    # clears both (the light one needs to be dark, the dark one light).
+    muted_fg   = if (light) "#5b6678" else "#9aa4b2",
+    pu_zone    = if (light) "#8470ff" else "#a99aff",
+    do_zone    = if (light) "#C44E52" else "#e07074",
+    origin     = if (light) "#E6B800" else "#FFD700"
+  )
+}
 
+# The token block for one mode, as the stylesheet wants it.
+taxi_palette_rules <- function(p) {
+  paste0("  --taxi-", c(
+    sprintf("surface: %s;", p$surface),
+    sprintf("border: %s;", p$border),
+    sprintf("success-bg: %s;", p$success_bg),
+    sprintf("success-fg: %s;", p$success_fg),
+    sprintf("danger-bg: %s;", p$danger_bg),
+    sprintf("danger-fg: %s;", p$danger_fg),
+    sprintf("muted-fg: %s;", p$muted_fg),
+    sprintf("pu-zone: %s;", p$pu_zone),
+    sprintf("do-zone: %s;", p$do_zone),
+    sprintf("origin: %s;", p$origin)
+  ))
+}
+
+theme_taxi <- function(mode = c("light", "dark")) {
+  mode <- match.arg(mode)
+  p <- taxi_palette(mode)
   bs_theme(
     version = 5,
-    bg = if (light) "#ffffff" else "#16171d",
-    fg = if (light) "#1f2328" else "#e6e6ea",
-    primary = brand_colour(if (light) "primary" else "primary_dark"),
+    bg = p$bg,
+    fg = p$fg,
+    primary = p$primary,
     base_font = font_google("Inter", local = TRUE),
     code_font = font_google("JetBrains Mono", local = TRUE),
     "border-radius" = "0.5rem",
@@ -22,26 +68,10 @@ theme_taxi <- function(mode = c("light", "dark")) {
       # block is app-only (share/ has no light/dark theme). Dark mode follows
       # data-bs-theme, which input_dark_mode() toggles on the page.
       ":root {",
-      "  --taxi-surface: #f6f7f9;",
-      "  --taxi-border: #e3e6ea;",
-      "  --taxi-success-bg: #d1f4dd;",
-      "  --taxi-success-fg: #0a5c2b;",
-      "  --taxi-danger-bg: #fde2e4;",
-      "  --taxi-danger-fg: #8b1a1a;",
-      "  --taxi-pu-zone: #8470ff;",
-      "  --taxi-do-zone: #C44E52;",
-      "  --taxi-origin: #E6B800;",
+      taxi_palette_rules(taxi_palette("light")),
       "}",
       "[data-bs-theme=\"dark\"] {",
-      "  --taxi-surface: #1e2028;",
-      "  --taxi-border: #2c2f3a;",
-      "  --taxi-success-bg: #1e4d2b;",
-      "  --taxi-success-fg: #6ee7a0;",
-      "  --taxi-danger-bg: #4a1a1a;",
-      "  --taxi-danger-fg: #f8a5a5;",
-      "  --taxi-pu-zone: #a99aff;",
-      "  --taxi-do-zone: #e07074;",
-      "  --taxi-origin: #FFD700;",
+      taxi_palette_rules(taxi_palette("dark")),
       "}",
       "body { background-color: var(--taxi-surface); }",
       ".card { border-color: var(--taxi-border); }"

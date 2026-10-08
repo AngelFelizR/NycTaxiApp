@@ -74,7 +74,7 @@ the mock.
   reachable without the model files. Not a section 10 target; the rest needs
   the release mounted.
 
-### 2. Accessibility §12 — pending
+### 2. Accessibility §12 — **done**
 
 - `prefers-reduced-motion` for the one `transition` in `app/www/styles.css`.
 - `role="img"` + `aria-label` on the two `girafe()` outputs

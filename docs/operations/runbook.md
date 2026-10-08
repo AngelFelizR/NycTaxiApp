@@ -323,6 +323,40 @@ credentials means a database incident cannot take the card down with it.
 
 ---
 
+## Manual checks that are deliberately not in CI
+
+Section 10 excludes `pa11y` and visual regression from CI and asks for a
+mobile checklist by hand; section 12 asks for the contrast to be signed off
+against WebAIM. What is already automated is listed first, so nobody
+re-does it.
+
+Already checked on every run, in `app/tests/testthat/test-accessibility.R`:
+
+- `prefers-reduced-motion` is honoured (one rule collapses every duration).
+- Both `girafe()` charts carry `role="img"` and an `aria-label` that is a
+  sentence, not the chart's title.
+- **Every text pair in both themes clears WCAG AA (4.5:1)**, computed from
+  `taxi_palette()` -- including `--taxi-muted-fg`, which exists precisely
+  because the old single grey reached only 4.44:1 on the light surface and
+  3.41:1 on the dark one.
+- The pending clock prints its hours as text, so the green/amber/red bar is
+  never the only signal (§3.11).
+
+Still manual, and worth doing before a release:
+
+```sh
+# 1. pa11y against a running stack (never in CI, section 10).
+npx @pa11y/pa11y http://127.0.0.1:3838/
+# 2. Contrast sign-off: paste the palette values into WebAIM's contrast
+#    checker and confirm -- the ratios the test enforces are the ones to
+#    expect. https://webaim.org/resources/contrastchecker/
+# 3. Mobile checklist (390px): Setup -> Trips -> Results, then /share, then
+#    the LinkedIn in-app browser. The keyboard hints are hidden on touch by
+#    design; check the 44px tap targets still are where they should be.
+```
+
+---
+
 ## Routine checks
 
 Not incidents — things worth doing on a quiet day:

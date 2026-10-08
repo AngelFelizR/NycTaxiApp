@@ -103,6 +103,16 @@ btn_busy <- "Sending..."
 label_sensitivity <- "Model Results"
 label_sensitivity_plot <- "Decision boundary by zone"
 label_history <- "Cumulative pay"
+# Section 12 asks for aria-label on the ggiraph charts: an SVG is a picture to
+# a screen reader, and this is the sentence that says what it shows.
+label_history_aria <- paste(
+  "Cumulative pay over the day: your line against the model policy and the",
+  "accept-everything baseline. The horizontal axis is the number of decisions."
+)
+label_sensitivity_aria <- paste(
+  "Decision boundary: the model's probability of accepting a trip across trip",
+  "time and driver pay, with the zone pair selected above."
+)
 # Curve legend labels. The values live in shared/curves.yaml so app/ and
 # share/ cannot drift; they are re-exported here to keep this file the one
 # place with the app's user-facing text (6.2). R/shared_config.R loads the

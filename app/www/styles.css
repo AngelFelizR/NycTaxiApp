@@ -16,7 +16,7 @@
   padding: .4rem 0;
   border-bottom: 1px solid var(--taxi-border, #e3e6ea);
 }
-.kpi-row .kpi-label { color: #64748b; font-size: .85rem; }
+.kpi-row .kpi-label { color: var(--taxi-muted-fg, #5b6678); font-size: .85rem; }
 .kpi-row .kpi-value { font-variant-numeric: tabular-nums; font-weight: 600; }
 
 /* ---- Pending time bar (6.5): the hours sit centred inside the bar ----
@@ -33,6 +33,20 @@
   margin: .5rem 0 1rem;
 }
 .pending-fill { height: 100%; transition: width .4s ease; }
+
+/* ---- Section 12: honour prefers-reduced-motion ----
+   The only thing this app animates is the pending-time fill, but Bootstrap,
+   Leaflet and the ggiraph widget animate too and none of them ask. One rule
+   collapses every duration instead of chasing them one by one; the fill then
+   jumps to its new width, which is what the user asked for. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 .pending-ok   { background: rgba(47, 158, 68, .45); }
 .pending-warn { background: rgba(224, 168, 0, .50); }
 .pending-low  { background: rgba(217, 83, 79, .50); }
@@ -71,7 +85,7 @@
   margin-top: 1rem;
   padding-top: .75rem;
   border-top: 1px solid var(--taxi-border, #e3e6ea);
-  color: #64748b;
+  color: var(--taxi-muted-fg, #5b6678);
   font-size: .85rem;
 }
 .kbd-footer .kbd-key {
