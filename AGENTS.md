@@ -306,13 +306,30 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 - Contenedor de desarrollo (cwd = raíz): `./setup.sh` (`-np` para no hacer pull).
   Hoy la imagen solo levanta sshd (host :2222, repo en `/root/NycTaxiApp`): es el
   entorno de desarrollo, **no** las imágenes de despliegue del §1.1.
-  **Los tests de CI corren dentro de esta misma imagen**: el job `build-dev`
-  de `.github/workflows/ci.yml` la construye, la publica en GHCR y los cuatro
-  jobs de test hacen `docker run --network host` con el repo montado en
-  `/root/NycTaxiApp`. En el runner no se instala Nix para los tests — así CI
-  y un portátil no pueden discrepar sobre el filesystem, la versión de Nix ni
-  el store (verificado localmente: dentro de la imagen, `nix-shell` da los
-  mismos recuentos que fuera).
+  **Los tests de CI corren dentro de esta misma imagen**, publicada como
+  `ghcr.io/angelfelizr/nyc-taxi-dev:latest`: los cuatro jobs de test hacen
+  `docker pull` + `docker run --network host` con el repo montado en
+  `/root/NycTaxiApp`. En el runner no se instala Nix — así CI y un portátil
+  no pueden discrepar sobre el filesystem, la versión de Nix ni el store
+  (verificado localmente: dentro de la imagen, `nix-shell` da los mismos
+  recuentos que fuera).
+  - **Se construye y se sube AQUÍ, no en CI** (`nix/` cambia mucho menos que
+    el código y un runner no debería pagar por recompilar el entorno).
+    Desde la raíz: `./infra/scripts/dev-image.sh build` (hace
+    `docker build --label nix-hash=…` + `docker push`). **Ojo:** cambiar un
+    fichero de `nix/` invalida las capas siguientes y Nix recompila desde
+    source — el build cuesta **horas**, no minutos; cuenta con ello antes de
+    tocar `nix/`.
+  - **CI se niega a testear contra una imagen desactualizada:**
+    `dev-image.sh check` compara la etiqueta `nix-hash` de la imagen con la
+    de este checkout y falla **antes** de ejecutar un solo test, diciendo qué
+    comando correr. Un run contra pins distintos aprueba o falla por un motivo
+    que no está en el commit.
+  - **La imagen hornea los shells que los tests usan** (capa 9d del
+    `Dockerfile`: `api/default.dev.nix` y `share/default.dev.nix`), para que
+    `nix-shell` no compile nada en el runner. El de la UI **no** va horneado
+    porque arrastraría `nix/test-tools.nix` (chromium, 1,3 GB): el test de
+    flujo lo baja del cache binario al primer uso.
 
 ## Experimentos (fase 3): create asíncrono
 - **Divergencia con §4.6** (anotada en `CHANGELOG.md`): `POST /experiments`

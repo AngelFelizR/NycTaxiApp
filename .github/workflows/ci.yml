@@ -5,7 +5,6 @@
 # expressed as `paths:` (8.6).
 #
 # Jobs
-#   build-dev       the development environment as an image, pushed to GHCR
 #   test-contract   spectral lint of both OpenAPI documents (10 s, always)
 #   test-api        testthat inside the dev image, with a real Postgres and
 #                   Redis service container
@@ -15,12 +14,17 @@
 #   build-*         multi-arch image to GHCR (latest + :sha)
 #   deploy          SSH to the VM: fetch+verify assets, pull, up, smoke test
 #
-# The four test jobs do NOT run on the runner's Nix. They pull `build-dev` and
-# run inside it, because that image is the same environment `./setup.sh` gives
-# you locally: Ubuntu, Determinate Nix, and every nix/r-*.nix layer already
-# built into the store. Running bare on the runner would let CI and a laptop
-# disagree about the filesystem, the Nix version and the store -- the class of
-# difference that costs a day to find.
+# The four test jobs do NOT run on the runner's Nix. They pull
+# ghcr.io/angelfelizr/nyc-taxi-dev:latest and run inside it, because that image
+# is the same environment `./setup.sh` gives you locally: Ubuntu, Determinate
+# Nix, and every nix/r-*.nix layer already built into the store. Running bare
+# on the runner would let CI and a laptop disagree about the filesystem, the
+# Nix version and the store -- the class of difference that costs a day to
+# find.
+#
+# The image is BUILT LOCALLY AND PUSHED BY HAND, because nix/ changes far less
+# often than the code and CI should never pay for an environment rebuild. The
+# procedure is in AGENTS.md under "Contenedor de desarrollo".
 #
 # Assumptions worth knowing before the first run:
 #   - Builds run on ubuntu-24.04-arm (free for public repos) because the VM is
@@ -108,56 +112,6 @@ jobs:
               - 'integration/**'
 
   # ---------------------------------------------------------------------
-  # build-dev: the development environment, as an image.
-  #
-  # Tests do not run on whatever Nix the runner happens to have. They run
-  # inside this image, which is what `./setup.sh` gives you locally: Ubuntu +
-  # Determinate Nix + every nix/r-*.nix layer already built into the store.
-  # Running on the runner instead means CI and a laptop can disagree about
-  # the filesystem, the Nix version and the store -- which is precisely the
-  # class of difference that costs a day to find. Built once here and pulled
-  # by the four test jobs; the layers are cached, so only a change to a nix
-  # file or the Dockerfile costs a rebuild.
-  # ---------------------------------------------------------------------
-  build-dev:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: >-
-      needs.changes.outputs.api == 'true' ||
-      needs.changes.outputs.app == 'true' ||
-      needs.changes.outputs.share == 'true' ||
-      needs.changes.outputs.integration == 'true' ||
-      needs.changes.outputs.nix == 'true'
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image: ${{ steps.meta.outputs.image }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      # GHCR only accepts lowercase repository names and the owner is
-      # AngelFelizR, so -- like build-api and friends -- the name is written
-      # out rather than derived from github.repository_owner.
-      - name: image reference
-        id: meta
-        run: echo "image=${REGISTRY}/angelfelizr/nyc-taxi-dev:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.image }}
-            ${{ env.REGISTRY }}/angelfelizr/nyc-taxi-dev:latest
-          cache-from: type=gha,scope=dev
-          cache-to: type=gha,scope=dev,mode=max
-
-  # ---------------------------------------------------------------------
   # test-contract: cheap and the contract is what every service reads, so it
   # runs on every change rather than being filtered away.
   # ---------------------------------------------------------------------
@@ -177,7 +131,7 @@ jobs:
   # ---------------------------------------------------------------------
   test-api:
     runs-on: ubuntu-latest
-    needs: [changes, build-dev]
+    needs: changes
     if: needs.changes.outputs.api == 'true' || needs.changes.outputs.nix == 'true'
     services:
       postgres:
@@ -223,15 +177,22 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The environment is built where it changes -- locally -- and pushed by
+      # hand, because nix/ moves far less often than the code does. CI only
+      # pulls it, and then refuses to test against one built from different
+      # pins: ./infra/scripts/dev-image.sh check compares the image's nix-hash
+      # label with this checkout. Procedure in AGENTS.md.
       - name: pull the development image
-        run: docker pull "${{ needs.build-dev.outputs.image }}"
+        run: |
+          docker pull "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest"
+          ./infra/scripts/dev-image.sh check
       - name: API tests (inside the dev image)
         run: |
           set -o pipefail
           docker run --rm --network host --shm-size=2g \
             -v "$PWD:/root/NycTaxiApp" \
             -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
-            "${{ needs.build-dev.outputs.image }}" \
+            "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest" \
             bash -c 'cd /root/NycTaxiApp/api && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/api.log"
       - name: annotate failures
@@ -245,7 +206,7 @@ jobs:
   # ---------------------------------------------------------------------
   test-shiny:
     runs-on: ubuntu-latest
-    needs: [changes, build-dev]
+    needs: changes
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.nix == 'true'
     # The flow test drives the real Setup screen, and Setup builds its zone
     # choices from ZonesShapes.qs2 (1 MB). A runner has no data volume, so
@@ -262,8 +223,15 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The environment is built where it changes -- locally -- and pushed by
+      # hand, because nix/ moves far less often than the code does. CI only
+      # pulls it, and then refuses to test against one built from different
+      # pins: ./infra/scripts/dev-image.sh check compares the image's nix-hash
+      # label with this checkout. Procedure in AGENTS.md.
       - name: pull the development image
-        run: docker pull "${{ needs.build-dev.outputs.image }}"
+        run: |
+          docker pull "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest"
+          ./infra/scripts/dev-image.sh check
       # The flow test drives the real Setup screen, and Setup builds its zone
       # choices from ZonesShapes.qs2 (1 MB of the 534 MB release -- the rest
       # stays out of CI because dev/mock_api.R answers every API call).
@@ -278,7 +246,7 @@ jobs:
           docker run --rm --network host --shm-size=2g \
             -v "$PWD:/root/NycTaxiApp" -v "$RUNNER_TEMP/data:/ci-data" \
             -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT -e DATA_DIR=/ci-data \
-            "${{ needs.build-dev.outputs.image }}" \
+            "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest" \
             bash -c 'cd /root/NycTaxiApp/app && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/app.log"
       - name: annotate failures
@@ -291,7 +259,7 @@ jobs:
   # ---------------------------------------------------------------------
   test-share:
     runs-on: ubuntu-latest
-    needs: [changes, build-dev]
+    needs: changes
     if: needs.changes.outputs.share == 'true' || needs.changes.outputs.nix == 'true'
     # Same reason as test-api: no .env in a fresh checkout. test-routes.R
     # sends this key to POST /render-card and the stub the test boots reads it
@@ -315,15 +283,22 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The environment is built where it changes -- locally -- and pushed by
+      # hand, because nix/ moves far less often than the code does. CI only
+      # pulls it, and then refuses to test against one built from different
+      # pins: ./infra/scripts/dev-image.sh check compares the image's nix-hash
+      # label with this checkout. Procedure in AGENTS.md.
       - name: pull the development image
-        run: docker pull "${{ needs.build-dev.outputs.image }}"
+        run: |
+          docker pull "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest"
+          ./infra/scripts/dev-image.sh check
       - name: share tests (inside the dev image)
         run: |
           set -o pipefail
           docker run --rm --network host --shm-size=2g \
             -v "$PWD:/root/NycTaxiApp" \
             -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
-            "${{ needs.build-dev.outputs.image }}" \
+            "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest" \
             bash -c 'cd /root/NycTaxiApp/share && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/share.log"
       - name: annotate failures
@@ -338,7 +313,7 @@ jobs:
   # ---------------------------------------------------------------------
   test-integration:
     runs-on: ubuntu-latest
-    needs: [changes, build-dev]
+    needs: changes
     if: needs.changes.outputs.integration == 'true'
     steps:
       - uses: actions/checkout@v4
@@ -347,15 +322,22 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The environment is built where it changes -- locally -- and pushed by
+      # hand, because nix/ moves far less often than the code does. CI only
+      # pulls it, and then refuses to test against one built from different
+      # pins: ./infra/scripts/dev-image.sh check compares the image's nix-hash
+      # label with this checkout. Procedure in AGENTS.md.
       - name: pull the development image
-        run: docker pull "${{ needs.build-dev.outputs.image }}"
+        run: |
+          docker pull "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest"
+          ./infra/scripts/dev-image.sh check
       - name: integration tests (inside the dev image)
         run: |
           set -o pipefail
           docker run --rm --network host --shm-size=2g \
             -v "$PWD:/root/NycTaxiApp" \
             -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
-            "${{ needs.build-dev.outputs.image }}" \
+            "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest" \
             bash -c 'cd /root/NycTaxiApp/integration && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/integration.log"
       - name: annotate failures

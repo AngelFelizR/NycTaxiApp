@@ -22,6 +22,10 @@
 #                      browser it never runs. The UI flow test fetches it from
 #                      the binary cache on first use, under
 #                      `nix-shell app/default.dev.nix`.
+#   - nix/system-runtime.nix  the images' system layer (without `nix`); this
+#                      is the development environment, so it keeps nix.
+#   - nix/pkgs-app.nix / nix/r-app.nix  only app/default.dev.nix uses them and
+#                      that shell is not baked (see test-tools above).
 
 FROM ubuntu:24.04
 
@@ -107,6 +111,24 @@ RUN nix-build /root/nix/r-api.nix -o /nix/profiles/r-api && \
 # without `yaml` and shared/load.R would fail at runtime.
 COPY nix/r-shared.nix /root/nix/r-shared.nix
 RUN nix-build /root/nix/r-shared.nix -o /nix/profiles/r-shared && \
+    nix-collect-garbage -d
+
+# ── Layer 9d: the shells the test jobs run in ───────────────────────────────
+# CI runs the suites with `nix-shell <service>/default.dev.nix` inside this
+# image, so those shells are built here rather than on a runner: the API shell
+# adds testthat, yaml, jsonvalidate, V8, pkgload and covr on top of the r-api
+# set Layer 9b already has, and the share shell adds plumber2 on top of the
+# root one. Their expressions are copied next to /root/nix so the `../nix/...`
+# they import resolves exactly as it does in the repository.
+#
+# The UI shell is deliberately NOT here: it would pull nix/test-tools.nix
+# (chromium, 1.3 GB), and the header of this file says no layer carries a
+# browser. The flow test fetches it from the binary cache on first use.
+COPY nix/r-share.nix /root/nix/r-share.nix
+COPY api/default.dev.nix /root/api/default.dev.nix
+COPY share/default.dev.nix /root/share/default.dev.nix
+RUN nix-build /root/api/default.dev.nix  -o /nix/profiles/shell-api  && \
+    nix-build /root/share/default.dev.nix -o /nix/profiles/shell-share && \
     nix-collect-garbage -d
 
 # ── Layer 10: realizar el shell completo (incluye stdenv toolchain) ─────────

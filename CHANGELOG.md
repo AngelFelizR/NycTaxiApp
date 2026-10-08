@@ -377,11 +377,18 @@ goes where.
   Spectral passes.
 
 - **CI runs the tests inside the development image, not on the runner's Nix.**
-  A new `build-dev` job builds the root `Dockerfile`, pushes it to GHCR
-  (layer-cached, so only a change to a `nix/` file or the Dockerfile costs a
-  rebuild), and the four test jobs pull it and run `nix-shell` **inside the
-  container** with the repository mounted at `/root/NycTaxiApp` and
-  `--network host` so they reach the Postgres and Redis service containers.
+  The four test jobs pull `ghcr.io/angelfelizr/nyc-taxi-dev:latest` and run
+  `nix-shell` **inside the container** with the repository mounted at
+  `/root/NycTaxiApp` and `--network host`, so they reach the Postgres and
+  Redis service containers. The image is **built and pushed by hand**
+  (`./infra/scripts/dev-image.sh build`) rather than in CI: `nix/` changes far
+  less often than the code, and the first CI attempt at building it spent 100
+  minutes compiling packages the binary cache does not cover. The image bakes
+  the shells the tests run in (a new Dockerfile layer for
+  `api/default.dev.nix` and `share/default.dev.nix`), and `dev-image.sh check`
+  refuses to run a single test when the image's `nix-hash` label does not
+  match the checkout -- a run against different pins would pass or fail for a
+  reason that is not in the commit.
   `cachix/install-nix-action` is gone from every test job: the environment
   now comes from the same pins that produce `./setup.sh` locally, which is the
   whole point — a runner and a laptop could otherwise disagree about the
