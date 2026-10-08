@@ -8,13 +8,18 @@
 # the root dev shell passes ./pkgs.nix. The default keeps `nix-build
 # nix/system.nix` (Dockerfile layer 5) working unchanged.
 { pkgs ? import ./pkgs.nix }:
+let
+  # R with openjdk/gcc/gfortran/glib-dev stripped out of its own output.
+  # 1,340 MB of toolchain that a runtime never uses; see nix/r-slim.nix and
+  # ADR-0011 for why it is safe and what it costs.
+  R = import ./r-slim.nix { inherit pkgs; };
+in
   pkgs.buildEnv {
     name = "system-packages";
     paths = builtins.attrValues {
       inherit (pkgs)
         glibcLocales
         nix
-        R
         which
         # The healthcheck and the offline scripts probe HTTP with it. It lives
         # here, not in the root profile, because /root is 0700 and a non-root
@@ -23,5 +28,6 @@
         fontconfig
         dejavu_fonts
         freefont_ttf;
+      inherit R;
     };
   }

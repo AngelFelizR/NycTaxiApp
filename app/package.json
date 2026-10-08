@@ -1,0 +1,11 @@
+{
+  "name": "nyctaxi-app-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "End-to-end and load tests for the Shiny app, driven by Cypress (section 10).",
+  "scripts": {
+    "e2e": "cypress run",
+    "open": "cypress open"
+  },
+  "comment": "No dependencies: Cypress 15.19.0 is installed once in the development image (Dockerfile layer 11) at /opt/npm, and its binary lives in CYPRESS_CACHE_FOLDER. Nothing here has to be installed per checkout."
+}

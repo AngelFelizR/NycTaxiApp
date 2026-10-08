@@ -12,7 +12,7 @@ let
   rEnv = pkgs.buildEnv { name = "r-share-prod"; paths = [ rShare rShared ]; };
 in pkgs.mkShell {
   R_LIBS_SITE = "${rEnv}/library";
-  buildInputs = [ pkgs.R systemPackages rEnv ];
+  buildInputs = [ systemPackages rEnv ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
     then "${pkgs.glibcLocales}/lib/locale/locale-archive"

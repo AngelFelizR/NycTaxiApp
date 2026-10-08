@@ -423,6 +423,34 @@ goes where.
   two inline CSS blocks, so the contrast test reads the values the stylesheet
   is built from. `theme_taxi()` renders the same rules from it.
 
+- **The runtime images run R without the toolchain R was built with**
+  (ADR-0011). `nix/r-slim.nix` strips `openjdk`, `gcc`, `gfortran`,
+  `graphviz` and the `cairo`/`pango` dev headers out of R's own output with
+  `remove-references-to`, over the four text files that hold those paths and
+  never near a binary: `gfortran-lib` and `gcc-lib`, which `libR.so` and
+  `bin/exec/R` actually need, are untouched. Measured, same pin: the closure of
+  `system.nix` goes **2608 MB / 284 paths -> 585 MB / 146 paths**, and R still
+  starts, keeps `en_US.UTF-8` and installs both packages. `glibc-locales` is
+  deliberately still there: `LANG` depends on it and this repository has
+  already paid for a locale problem. Both `system.nix` and
+  `system-runtime.nix` import it, each instantiated with its own pin, so dev
+  and production run the same R.
+- **Cypress is the UI's end-to-end and load tool** (ADR-0012), and
+  `shinytest2` goes once its 14 scenarios have landed. The chain phase 8
+  assumed does not exist: `shinyloadtest` 1.2.1 only *analyses* the output of
+  `shinycannon`, which is not in the pin, ships as a jar needing a JDK we do
+  not carry, and takes a recording produced while a human drives a browser.
+  What landed now: `nix/node.nix` plus Dockerfile layer 11 (node from Nix,
+  Cypress from npm because `pkgs.cypress` is marked insecure, Electron's
+  libraries from apt, `cypress verify` running **in the build** so a broken
+  toolchain fails there), `app/cypress.config.cjs`, `app/dev/e2e.sh` (owns the
+  app and the mock API, and says why the app never answered rather than
+  timing out silently) and the first spec. **`setup-screen.cy.js`: 2 passing,
+  against the real app, with the mock API.**
+- **The development image grew from 7.51 GB to 8.97 GB** with node, Cypress
+  and the Electron libraries. It is a development image: no deployment one
+  carries any of it.
+
 ### Changed
 - **§7.1 describes three layers for the card and there are now two.** The
   master document puts a Redis cache in front of the render and the edge in

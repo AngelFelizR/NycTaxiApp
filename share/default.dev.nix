@@ -18,7 +18,9 @@ let
   rEnv = pkgs.buildEnv { name = "r-share-dev"; paths = [ rShare rDev rShared ]; };
 in pkgs.mkShell {
   R_LIBS_SITE = "${rEnv}/library";
-  buildInputs = [ pkgs.R systemPackages rEnv ];
+  # systemPackages carries the slim R (nix/r-slim.nix); pkgs.R used to come
+  # first here and shadowed it with the full toolchain (ADR-0011).
+  buildInputs = [ systemPackages rEnv ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
     then "${pkgs.glibcLocales}/lib/locale/locale-archive"

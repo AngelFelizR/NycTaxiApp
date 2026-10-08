@@ -75,6 +75,10 @@ RUN nix-instantiate --eval /root/nix/pkgs.nix && \
 
 # ── Layer 5: system packages (R, fontconfig, locales, fonts) ────────────────
 COPY nix/system.nix /root/nix/system.nix
+# system.nix imports this (R with the toolchain stripped); the file-by-file
+# COPYs below mean it has to be named explicitly, unlike the service
+# Dockerfiles which copy nix/ as a whole.
+COPY nix/r-slim.nix /root/nix/r-slim.nix
 RUN nix-build /root/nix/system.nix -o /nix/profiles/system-packages && \
     nix-collect-garbage -d
 
@@ -145,5 +149,42 @@ RUN mkdir -p /var/run/sshd /root/.ssh && \
     echo "PermitRootLogin prohibit-password" >> /etc/ssh/sshd_config && \
     echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && \
     echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config
+
+
+# ── Layer 11: Cypress, for the UI's end-to-end tests (section 10, phase 8) ──
+# Deliberately the LAST layer: anything above it that changes invalidates it,
+# and nothing above it changes often. It has nothing to do with R.
+#
+# Three pieces, each for a reason:
+#   * the Electron system libraries, from apt. This is an Ubuntu image and
+#     Layer 1 already uses apt; the list is Cypress's own "required
+#     dependencies" plus xvfb, which is what `cypress verify` was missing
+#     first (spawn Xvfb ENOENT). Verified in-container before being written
+#     down: `cypress verify` reports "Verified Cypress!".
+#   * node, from nix (nix/node.nix), so the interpreter is pinned like
+#     everything else here.
+#   * Cypress from npm rather than pkgs.cypress: the pin marks
+#     cypress-15.19.0 insecure, and granting permittedInsecurePackages means
+#     editing nix/pkgs.nix -- which invalidates every layer above (ADR-0011).
+#     `cypress install` downloads the binary explicitly because npm no longer
+#     runs postinstall scripts by default, and `verify` failing here is the
+#     point: a broken toolchain is caught at build time, not by a red test.
+RUN apt update -y && apt install -y --no-install-recommends \
+      xvfb xauth libgtk-3-0 libnss3 libgbm1 libasound2t64 libxss1 libxtst6 \
+      libnotify4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libcups2 \
+      libpango-1.0-0 libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY nix/node.nix /root/nix/node.nix
+RUN nix-build /root/nix/node.nix -o /nix/profiles/node
+
+ENV PATH="/nix/profiles/node/bin:/opt/npm/bin:${PATH}" \
+    CYPRESS_CACHE_FOLDER=/opt/cypress-cache \
+    npm_config_prefix=/opt/npm
+
+RUN npm install --global cypress@15.19.0 && \
+    /opt/npm/bin/cypress install && \
+    /opt/npm/bin/cypress verify && \
+    nix-collect-garbage -d
 
 CMD ["/usr/sbin/sshd", "-D"]

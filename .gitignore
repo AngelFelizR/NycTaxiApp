@@ -36,3 +36,10 @@ result
 !.env.example
 
 /.quarto/
+
+# Cypress artifacts (specs are committed; what they produce is not)
+app/cypress/screenshots/
+app/cypress/videos/
+app/cypress/downloads/
+app/cypress/results/
+node_modules/

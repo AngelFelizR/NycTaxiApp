@@ -84,6 +84,8 @@ Decisions the master document does not make, or makes differently.
 | [`0008-runtime-system-layer.md`](0008-runtime-system-layer.md) | §1.1, §8.6 | Images build a system layer without `nix` (~70 MB per image); the other 1.34 GB lives inside R and is left alone |
 | [`0009-setup-progress-on-the-row.md`](0009-setup-progress-on-the-row.md) | §4.6 | The `setup` percentage is a column published by the child, not a count of trajectory rows; the timeout stays on `created_at` |
 | [`0010-one-cache-layer-for-the-card.md`](0010-one-cache-layer-for-the-card.md) | §7.1, §11 (differs) | The card has one cache, the edge; `/metrics` reports renders instead of two counters nothing incremented |
+| [`0011-runtime-r-without-the-toolchain.md`](0011-runtime-r-without-the-toolchain.md) | §1.1, §8.6 | R's output carries no JDK/compiler/Python; `glibc-locales` stays |
+| [`0012-cypress-is-the-e2e-and-load-tool.md`](0012-cypress-is-the-e2e-and-load-tool.md) | §10, §12, §8 (differs) | Cypress does E2E, pa11y and load; `shinytest2` goes |
 ## Execution still pending
 
 Not decisions — work. Everything external to this repository is in

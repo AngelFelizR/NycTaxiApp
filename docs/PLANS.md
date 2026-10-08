@@ -101,13 +101,20 @@ The other three numbers section 8 asks for do not need it — p95 of
 
 ---
 
-## PROPOSAL — Cypress as the UI, E2E and load tool (**questions open**)
+## PROPOSAL — Cypress as the UI, E2E and load tool — **accepted, in progress** (ADR-0012)
 
-Asked for 2026-10-08: *use Cypress for the Shiny app E2E and for measuring
+Asked for 2026-10-08 and **answered: six questions, all six decided** (see ADR-0012's table). The ask was: *use Cypress for the Shiny app E2E and for measuring
 resources per user and reliability under concurrent users with different
 decision strategies; whatever Cypress can do, Cypress does, and the old
-scripts and dependencies are removed.* Nothing has been executed — this
-section is the implication analysis and the questions to answer first.
+scripts and dependencies are removed.* **Landed so far:** `nix/node.nix`, Dockerfile layer 11 (Cypress baked and
+`cypress verify` running in the build), `app/package.json`,
+`app/cypress.config.cjs`, `app/cypress/support/`, `app/dev/e2e.sh` and the
+first spec — `setup-screen.cy.js`, **2 passing against the real app with the
+mock API**. R-slim (the R half of the same push) is ADR-0011 and is done.
+
+**Still to do:** migrate the other 13 scenarios (both suites run until the
+last one lands), `app/dev/load_test.sh` (N sessions, two strategies, server
+CPU/RSS), pa11y via Lighthouse, the CI job, and the deletion commit.
 
 ### Feasibility, measured
 

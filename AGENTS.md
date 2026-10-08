@@ -326,6 +326,15 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
     de este checkout y falla **antes** de ejecutar un solo test, diciendo qué
     comando correr. Un run contra pins distintos aprueba o falla por un motivo
     que no está en el commit.
+  - **Cypress está horneado** (capa 11 del `Dockerfile`, la última): node de
+    Nix + `npm install -g cypress` + sus libs de Electron por `apt`, con
+    `cypress verify` **dentro del build** para que un entorno roto falle ahí.
+    `pkgs.cypress` está marcado inseguro en el pin, por eso va por npm y no
+    por `permittedInsecurePackages` (ADR-0011/0012). Los tests E2E se lanzan
+    con `nix-shell app/default.dev.nix --run "./dev/e2e.sh"` (arranca app y
+    `dev/mock_api.R`, espera a que la app responda y ejecuta `cypress run`).
+    Ojo: `CYPRESS_CACHE_FOLDER` hay que ponerlo dentro del script — una sesión
+    SSH no hereda el ENV del contenedor y `~/.cache/Cypress` está vacío.
   - **La imagen hornea los shells que los tests usan** (capa 9d del
     `Dockerfile`: `api/default.dev.nix` y `share/default.dev.nix`), para que
     `nix-shell` no compile nada en el runner. El de la UI **no** va horneado

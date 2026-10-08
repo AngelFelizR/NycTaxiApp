@@ -7,10 +7,30 @@
 let
   pkgs = import ../nix/pkgs-api.nix;
   rApi = import ../nix/r-api.nix;
+  # system.nix, not pkgs.R: that one still carries openjdk/gcc/gfortran inside
+  # R's own output (nix/r-slim.nix strips them), and the shell has to run the
+  # same R the images do -- otherwise dev tests the full toolchain while prod
+  # runs the slim one (ADR-0011).
+  systemPackages = import ../nix/system.nix { inherit pkgs; };
+  # One merged library tree, the same shape share/ and app/ use. R_LIBS_SITE
+  # is a single root, so everything the tests need has to be inside it: with
+  # bare `pkgs.R` in buildInputs the R wrapper happened to add them, and
+  # replacing it with systemPackages silently dropped testthat out of the
+  # path ("there is no package called 'testthat'").
+  rEnv = pkgs.buildEnv {
+    name = "api-dev";
+    paths = [
+      rApi
+      pkgs.rPackages.testthat
+      pkgs.rPackages.yaml
+      pkgs.rPackages.jsonvalidate
+      pkgs.rPackages.V8
+      pkgs.rPackages.pkgload
+      pkgs.rPackages.covr
+    ];
+  };
 in pkgs.mkShell {
-  # Single merged library dir for every API package (buildEnv), in front of
-  # whatever the R wrapper would add.
-  R_LIBS_SITE = "${rApi}/library";
+  R_LIBS_SITE = "${rEnv}/library";
   # testthat lives here rather than in nix/r-api.nix: that module is also the
   # production image's layer, and no deployment runs a test (phase 7). The
   # contract-conformance stack (ADR-0006) is here for the same reason: nothing
@@ -21,16 +41,7 @@ in pkgs.mkShell {
   #   pkgload       -- load_all (ADR-0007); the dev shell has no installed
   #   covr          -- taxiapi, the image does
   #                   -- section 10's coverage numbers
-  buildInputs = [
-    pkgs.R
-    rApi
-    pkgs.rPackages.testthat
-    pkgs.rPackages.yaml
-    pkgs.rPackages.jsonvalidate
-    pkgs.rPackages.V8
-    pkgs.rPackages.pkgload
-    pkgs.rPackages.covr
-  ];
+  buildInputs = [ systemPackages rEnv ];
   LOCALE_ARCHIVE =
     if pkgs.stdenv.hostPlatform.system == "x86_64-linux"
     then "${pkgs.glibcLocales}/lib/locale/locale-archive"
