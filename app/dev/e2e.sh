@@ -21,7 +21,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ROOT="$(cd ../.. && pwd)"
+# The cd above leaves us in app/, so the repository root is one level up.
+# It was ../.. -- the parent of the repository -- which broke only the paths
+# that start the API and read .env: with nothing answering already, the script
+# ran `Rscript api/plumber.R` in a directory without api/ and gave up.
+ROOT="$(cd .. && pwd)"
 APP_PORT="${APP_PORT:-3838}"
 PROXY_PORT="${PROXY_PORT:-3839}"
 API_PORT="${API_PORT:-8000}"

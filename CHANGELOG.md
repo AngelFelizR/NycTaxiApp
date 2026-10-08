@@ -922,6 +922,16 @@ goes where.
 
 ### Fixed
 
+- **`app/dev/e2e.sh` computed the repository root one level too high**
+  (`cd ../..` from `app/`, i.e. the *parent* of the repository). Only the
+  paths that start the API and read `.env` used it, so the bug hid behind an
+  already-running API: with nothing answering, the script ran
+  `Rscript api/plumber.R` in a directory without `api/`, the API never came
+  up and the first CI run of the browser suite died with "the API never
+  answered". Now `cd ..`. `infra/scripts/ci_report.sh` learned two things
+  from that run: `never answered` is a reason worth annotating, and the
+  `127.0.0.1:8093` narinfo errors of an absent loopback cache (ADR-0013) are
+  noise that must be filtered, or they are all an annotation shows.
 - `httr2::req_perform()` throws on 4xx/5xx by default, so `api_share_data()`
   collapsed every real status into a caught error and the share page answered
   **503 for an unknown token** instead of 404. `api_request()` now sets

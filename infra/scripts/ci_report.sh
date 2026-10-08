@@ -55,9 +55,14 @@ if [ -n "$blocks" ]; then
   done
 else
   # 2. Nothing that looks like a test failure: the shell or the build died.
+  #    The loopback binary cache (ADR-0013) is never running in CI, so Nix
+  #    prints one `error: unable to download ... 127.0.0.1:8093` per path it
+  #    then gets from cache.nixos.org: real lines, but never the reason, and
+  #    annotating them buries the one that is. `never answered` is e2e.sh's
+  #    own voice -- without it the first red run reported only Nix noise.
   matches=$(grep -E \
-    '^\[ FAIL [1-9]|^Error( in)?: |^ERROR|^Execution halted|command not found|^error: ' \
-    "$log" | head -30)
+    '^\[ FAIL [1-9]|^Error( in)?: |^ERROR|^Execution halted|command not found|^error: |never answered' \
+    "$log" | grep -v '127.0.0.1:8093' | head -30)
   if [ -z "$matches" ]; then
     matches=$(tail -20 "$log")
   fi
