@@ -223,8 +223,9 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   y no en `tests/` porque covr ejecuta todo `.R` de `tests/`: un script de
   cobertura ahí se mediría a sí mismo. Exporta `TAXI_API_DIR` (los tests
   corren sobre la **copia instalada** en un árbol temporal y sin eso `..` no
-  apunta al repo) y se exige el umbral global con `COVERAGE_FAIL_UNDER`; el
-  100 % de los siete ficheros críticos de §10 solo se reporta.
+  apunta al repo) y se exigen **ambos** umbrales de §10:
+  `COVERAGE_FAIL_UNDER=60` (global) y `COVERAGE_FAIL_CRITICAL=1` (100 % en
+  cada uno de los siete ficheros críticos).
 - Tests del **cliente** API sin servidor: `httr2::with_mocked_responses()`
   (`app/tests/testthat/test-api_client.R`) — no confundir con los de la API.
 - Tests del **servicio share** (cwd = `share/`):

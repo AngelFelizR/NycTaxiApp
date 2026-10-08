@@ -51,7 +51,12 @@ reference_distribution <- function() {
   path <- file.path(models_dir(), "ReferenceDistribution.qs2")
   if (!file.exists(path)) return(NULL)
   ref <- tryCatch(qs2::qs_read(path), error = function(e) NULL)
-  if (is.null(ref)) return(NULL)
+  # qs2 does not raise on a corrupt file -- it returns the message text as a
+  # character vector ("ERROR: Unknown file format detected"). Without this
+  # check that string would be cached as the reference and reference_percentile
+  # would fail with "invalid $ operator" the next time /finish asked for a
+  # percentile, turning a bad file into a 500 on the last screen of the day.
+  if (!is.list(ref) || is.null(ref$by_company)) return(NULL)
   model_state$reference <- ref
   ref
 }

@@ -395,6 +395,20 @@ goes where.
   filesystem, the Nix version and the store. The shell-build retries went with
   it, because those shells are already built into the image.
 
+- **Section 10's coverage target is met and now enforced.** Three new test
+  files close what the report named: `test-request-context.R` (the section 11
+  logger, which had never been tested at all), `test-cors-and-predict.R`
+  (the CORS origin rule and the "nothing is loaded" answers the 503s depend
+  on) and `test-coverage-critical.R` (the branches a happy-path day never
+  reaches: migrations that cannot apply, a whitespace client IP, a day with no
+  data, a replay that disagrees with what was stored, a step cap, and every
+  branch of the Results and share copy -- the one section 10 asks for by name).
+  **75.0% -> 80.2% globally, and all seven critical files at 100%** (three
+  were already there; `db_migrations` 75.8 -> 100, `ml_simulate` 90.9 -> 100,
+  `middleware_client_ip` 80 -> 100, `ml_outcome` 80.4 -> 100).
+  CI now holds both bars: `COVERAGE_FAIL_UNDER=60` and
+  `COVERAGE_FAIL_CRITICAL=1`.
+
 ### Changed
 - **§7.1 describes three layers for the card and there are now two.** The
   master document puts a Redis cache in front of the render and the edge in
@@ -803,6 +817,18 @@ goes where.
   script resolved `tests/testthat` against whatever directory covr stood in.
   It now resolves against its own location, which is also what a plain
   `Rscript tests/testthat.R` wants.
+
+- **A corrupt `ReferenceDistribution.qs2` was accepted as a reference.**
+  `qs2::qs_read()` does not raise on a bad file -- it returns the message
+  text as a character vector -- so `reference_distribution()` cached that
+  string and `reference_percentile()` would have failed with "invalid $
+  operator" the next time `POST /finish` asked for a percentile: a damaged
+  file became a 500 on the last screen of the day. It now requires a list
+  with `by_company` before caching anything.
+- The coverage step had been **silently dropped from CI** when the test jobs
+  moved into the development image: the rewrite replaced every job's `steps:`
+  block and the coverage step was not among what it kept. Restored, inside
+  the same image as the tests.
 
 ### Fixed
 

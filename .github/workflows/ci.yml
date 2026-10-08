@@ -198,6 +198,28 @@ jobs:
       - name: annotate failures
         if: failure()
         run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/api.log" "API"
+      # Section 10, both bars: 60% globally and 100% on the seven critical
+      # files. Same image as the tests, so the number is measured in the
+      # environment the assertions ran in. The report is written straight into
+      # the step summary, which is why $RUNNER_TEMP is mounted at the same
+      # path inside the container.
+      - name: coverage (section 10)
+        run: |
+          set -o pipefail
+          docker run --rm --network host --shm-size=2g \
+            -v "$PWD:/root/NycTaxiApp" \
+            -v "$RUNNER_TEMP:$RUNNER_TEMP" \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER \
+            -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT \
+            -e API_INTERNAL_KEY -e IP_HASH_SALT \
+            -e COVERAGE_FAIL_UNDER=60 -e COVERAGE_FAIL_CRITICAL=1 \
+            -e GITHUB_STEP_SUMMARY \
+            "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest" \
+            bash -c 'cd /root/NycTaxiApp/api && nix-shell default.dev.nix --run "Rscript dev/coverage.R"' 2>&1 \
+            | tee "$RUNNER_TEMP/coverage.log"
+      - name: annotate coverage failures
+        if: failure()
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/coverage.log" "coverage"
 
   # ---------------------------------------------------------------------
   # test-shiny: app/default.dev.nix carries chromium through test-tools.nix.

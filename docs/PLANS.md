@@ -51,6 +51,54 @@ Nothing in flight. The CI history below explains how it got green:
 
 ---
 
+## Closing §10, §12 and phase 8 (chosen 2026-10-08)
+
+Order agreed: **coverage → accessibility → load testing**. Load testing runs
+**locally or on the VM**, not in CI — annotated as a divergence with §10,
+which says "in CI, does not block a merge"; CI has no models and no dataset,
+and a p95 of `/sensitivity` measured against a mock would be a number about
+the mock.
+
+### 1. Coverage §10 — **done**
+
+- `test-request-context.R` (the section 11 logger: what it attaches, the
+  shared catch-all with auth, the six JSON fields, no clear IP),
+  `test-cors-and-predict.R` (origin rule and the NULL answers) and
+  `test-coverage-critical.R` (the branches a normal day never reaches).
+- **75.0% → 80.2% globally; all seven critical files at 100%.**
+- Both bars enforced in CI: `COVERAGE_FAIL_UNDER=60`,
+  `COVERAGE_FAIL_CRITICAL=1`.
+- Found along the way: a corrupt `ReferenceDistribution.qs2` was being cached
+  as a valid reference (qs2 returns the error text instead of raising).
+- `ml_predict.R` sits at 9.1%: only the "nothing is loaded" branches are
+  reachable without the model files. Not a section 10 target; the rest needs
+  the release mounted.
+
+### 2. Accessibility §12 — pending
+
+- `prefers-reduced-motion` for the one `transition` in `app/www/styles.css`.
+- `role="img"` + `aria-label` on the two `girafe()` outputs
+  (`mod_results.R`, `mod_sensitivity.R`), which §12 names literally.
+- A test computing WCAG contrast for every colour pair the two themes use
+  (text on surface, and the success/danger/zone tokens), failing below 4.5:1.
+  WebAIM stays the manual sign-off.
+- A test that the Results indicators pair colour with text or icon (§3.11).
+- `pa11y` and the mobile checklist stay manual (§10 says so); where to run
+  them goes in the runbook.
+
+### 3. Phase 8 — load testing and hardening — pending
+
+- Confirm `shinyloadtest` exists in the pin; add it to a dev-only shell.
+- Profiles 1 / 10 / 20 concurrent users against the real stack; report
+  memory, p95 of `/sensitivity`, and the median day (target ≤ 12 min).
+- Adjust `max-total-instances` in `infra/shinyproxy/application.yml` only
+  with ≥ 2 GB of headroom.
+- `pa11y` + mobile checklist + contrast, then ADRs and a runbook entry.
+- **Divergences to annotate:** §8's phase-8 prompt asks for "PNG cache hits",
+  a metric Plan D removed (ADR-0010); and §10 puts load testing in CI, which
+  the choice above keeps local.
+
+
 ## Plan A — convert `api/` and `app/` into real R packages (R6.3)
 
 **Why.** `covr::package_coverage()` needs a `NAMESPACE` *and* all code at the

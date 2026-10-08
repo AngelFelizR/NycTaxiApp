@@ -96,7 +96,11 @@ access_logger <- function(event, message, request = NULL, time = Sys.time(),
     correlation_id = request$correlation_id %||% "",
     ip_hash = request$ip_hash %||% ""
   )
-  cat(as.character(jsonlite::toJSON(line, auto_unbox = TRUE)), "\n",
-      sep = "", file = stderr())
+  # na = "null": toJSON's default renders NA as the *string* "NA"
+  # ({\"duration_ms\":\"NA\"}), so a consumer reading the type of a number
+  # would get a string exactly when the request had no measurable duration --
+  # which is the one case where the field cannot be trusted anyway.
+  cat(as.character(jsonlite::toJSON(line, auto_unbox = TRUE, na = "null")),
+      "\n", sep = "", file = stderr())
   invisible(NULL)
 }

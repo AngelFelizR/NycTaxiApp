@@ -30,6 +30,11 @@ Sys.setenv(TAXI_API_DIR = normalizePath("."))
 fail_under <- suppressWarnings(as.numeric(Sys.getenv("COVERAGE_FAIL_UNDER", "")))
 if (length(fail_under) != 1L || is.na(fail_under)) fail_under <- NA_real_
 
+# Per-file bar, a separate switch: section 10 asks for 100% on the seven
+# critical files, and CI holds both. Two switches so the global figure can
+# stay enforced even while a per-file number is being agreed.
+fail_critical <- identical(Sys.getenv("COVERAGE_FAIL_CRITICAL", ""), "1")
+
 res <- package_coverage(path = ".", quiet = TRUE)
 
 # percent_coverage() already returns a percentage; asking for it per file
@@ -71,8 +76,12 @@ if (length(missing_crit)) {
 }
 lines <- c(
   lines, "",
-  if (is.na(fail_under)) "enforcement: off (report only)" else
-    sprintf("enforcement: >= %.0f%% globally", fail_under),
+  paste0(
+    if (is.na(fail_under)) "enforcement: global off" else
+      sprintf("enforcement: global >= %.0f%%", fail_under),
+    if (fail_critical) "; critical files 100% each"
+      else "; critical files reported only"
+  ),
   "", "<details><summary>per file</summary>", "",
   sprintf("- %s: %.1f%%", basename(names(by_file)), by_file),
   "", "</details>"
@@ -94,4 +103,14 @@ if (length(missing_crit)) {
 if (!is.na(fail_under) && global < fail_under) {
   stop(sprintf("coverage %.1f%% is below the required %.0f%%",
                global, fail_under))
+}
+if (fail_critical) {
+  short <- !is.na(crit) & crit < 100
+  if (any(short)) {
+    stop(sprintf(
+      "section 10 wants 100%% on every critical file; short: %s",
+      paste(sprintf("%s=%.1f%%", critical[short], 100 * crit[short]),
+            collapse = ", ")
+    ))
+  }
 }
