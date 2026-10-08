@@ -17,9 +17,14 @@ set -euo pipefail
 
 IMAGE="${IMAGE:-ghcr.io/angelfelizr/nyc-taxi-dev:latest}"
 
-# Sorted by the shell's glob, so the value depends on the directory contents
-# and their names, not on the order the files happen to be read in.
-nix_hash() { sha256sum nix/* | sha256sum | cut -c1-16; }
+# The order has to be pinned, not inherited: a shell glob follows LC_COLLATE,
+# and en_US.UTF-8 sorts "r-shared" before "r-share" while C sorts it after --
+# the same directory then hashes differently on a laptop and on a runner, and
+# the check fails for content that is identical. LC_ALL=C everywhere.
+nix_hash() {
+  find nix -maxdepth 1 -type f | LC_ALL=C sort | \
+    xargs -r sha256sum | sha256sum | cut -c1-16
+}
 
 case "${1:-}" in
   build)
