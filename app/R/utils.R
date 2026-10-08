@@ -54,8 +54,9 @@ ensure_daemons <- function(n = 4) {
 # A rejected promise reaches task_result() as `shiny.silent.error` with an
 # EMPTY message -- Shiny discards the text on the way across -- so a failing
 # call used to vanish: no notification, no log, nothing. The visitor clicked
-# and nothing happened. Caught by test-shinytest2.R ("a 429 from the API is
-# shown with the API's own message") after section 10 asked for it.
+# and nothing happened. Caught by section 10's status test: it was
+# test-shinytest2.R's 429 scenario, it is rate-limit.cy.js now, and it reads
+# the API's own message off the notification.
 #
 # So the call never rejects: it resolves to `list(failure = <message>)` and
 # the reader decides. Daemons that will not start are handled the same way,

@@ -24,11 +24,9 @@ habla con los endpoints reales del contrato: `mod_setup` con Leaflet
 bidireccional, validación con hints, email/marketing, semilla avanzada y el
 modal único de `resume_code`; `mod_header`, `mod_confirm_modal` y un
 `mod_results` mínimo; estado de sesión en `state.R` (reenvío de `X-Client-IP`);
-arranque perezoso de los daemons mirai (< 2 s a "Listening"); mock API en
-`app/dev/mock_api.R` con tests unitarios y de flujo `shinytest2` en Chromium.
+arranque perezoso de los daemons mirai (< 2 s a "Listening").
 **Split de dependencias Nix hecho:** `nix/pkgs-app.nix` + `nix/r-app.nix` para
-la UI, `nix/test-tools.nix` solo con el navegador de los tests, `system.nix`
-de vuelta a lo genérico (sin `chromium`) y `r-dev.nix` sin `devtools`/
+la UI, `system.nix` de vuelta a lo genérico y `r-dev.nix` sin `devtools`/
 `roxygen2` (ver la sección de Nix). **Fase 5 hecha:** `mod_trip_card` (oferta,
 mapa con `leafletProxy`, Accept/Reject) y `mod_sensitivity` (selectize
 server-side + `renderGirafe`) extraídos de `mod_trips`, que ahora es la
@@ -84,16 +82,17 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   `nix-build` auto-invoca los defaults, así que **las capas del Dockerfile no
   cambiaron**; el shell raíz pasa `pkgs.nix` y `app/default.dev.nix` pasa
   `pkgs-app.nix`.
-  **Agregados:** `nix/r-app.nix` = la UI entera en una expresión
-  (`nix-build nix/r-app.nix`, lo que consumirá la imagen de la fase 7) ·
-  `nix/test-tools.nix` = **solo** lo que las pruebas necesitan: el
-  navegador **y** `shinytest2`, fuera de la imagen desde ADR-0007.
+  **Agregados:**   `nix/r-app.nix` = la UI entera en una expresión
+  (`nix-build nix/r-app.nix`, lo que consumirá la imagen de la fase 7). Las
+  pruebas ya no necesitan herramientas propias: el navegador y `shinytest2`
+  que guardaba `nix/test-tools.nix` se fueron con la migración a Cypress
+  (ADR-0014), y el binario de Cypress lo trae la imagen, no Nix.
   **Sin dependencias huérfanas:** `system.nix` es genérico (R, locales, fuentes)
   y de ahí salió `chromium` (**1,3 GB**: 3701 → 2428 MB de cierre), de modo que
   ninguna imagen que reutilice esa capa herede un navegador que nunca ejecuta;
   `r-dev.nix` perdió `devtools`/`roxygen2` (75 MB: no hacen falta — hay
-  `NAMESPACE` pero no roxygen, nada lo genera). El shell raíz excluye `r-api.nix`,
-  `r-app.nix` y `test-tools.nix`. **Fase 7:** existen los tres
+  `NAMESPACE` pero no roxygen, nada lo genera). El shell raíz excluye `r-api.nix`
+  y `r-app.nix`. **Fase 7:** existen los tres
   `default.prod.nix` (`api/`, `app/`, `share/`); `nix/r-app.nix` acepta
   `withDev = false` para que la imagen no arrastre `r-dev.nix`, y
   `testthat` salió de `nix/r-api.nix` (es la capa de la imagen) para vivir
@@ -127,7 +126,8 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   clientes de la API y ningún endpoint es accesible desde Internet.
 
 ## Tests: cuatro paquetes de R separados
-- `app/` → tests de **UI** (unitarios de módulos + `shinytest2`).
+- `app/` → tests de **UI**: unitarios de módulos (R) y la suite de navegador
+  (`app/cypress/`, Cypress) contra la API real.
 - `api/` → tests de la **API** (`testthat` con el **Postgres fijo del compose**
   raíz, no testcontainers — `docs/decisions/0001-*`), Redis real para el
   caché de `/sensitivity` (se salta si no responde). Incluye la **conformidad
@@ -211,12 +211,10 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 
 ## Comandos (cwd = `app/` salvo indicación)
 - Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"`
-  (unit + flujo). **El recuento vive en la salida y en CI, no aquí.**
+  (unitarios). **El recuento vive en la salida y en CI, no aquí.**
   NO `test_check()`/`devtools::test()`: `helper-load.R` hace `load_all()`
   (o `library(taxiapp)` cuando `R_COVR` está, que es lo que hace covr — sin
-  esa rama la cobertura saldría 0). En el shell **raíz** todo pasa salvo el test de flujo:
-  ese shell no lleva `test-tools.nix`, y se salta con un mensaje que apunta al
-  shell correcto.
+  esa rama la cobertura saldría 0).
 - Un archivo: `testthat::test_file("tests/testthat/test-utils.R")`.
 - **Cobertura de §10** (cwd = `api/`):
   `nix-shell default.dev.nix --run "Rscript dev/coverage.R"`. Está en `dev/`
@@ -260,14 +258,16 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   No necesita ningún servicio: son las tres descripciones del
   sistema (contrato ↔ rutas registradas ↔ caminos de los clientes) mirándose
   una a la otra.
-- Test de flujo (`test-shinytest2.R`, fases 4-6): levanta `dev/mock_api.R` en un
-  puerto aleatorio, arranca la app real en Chromium headless y recorre
-  Setup → semilla → modal → Trips → todas las decisiones hasta cerrar la
-  jornada → Results → modal de feedback, más el reenvío de `X-Client-IP`.
-  Requiere `chromium` (`nix/test-tools.nix`, presente en
-  `app/default.dev.nix` **no** en el shell raíz) y `NOT_CRAN=true`
-  (`AppDriver` se niega a correr si testthat cree que estamos en CRAN; el
-  shell y el propio test lo fijan).
+- Test de flujo en navegador (`app/cypress/e2e/*.cy.js`): Cypress contra la
+  **API real** — no hay mock (ADR-0014). `./dev/e2e.sh` arranca lo que haga
+  falta (API, share/, el proxy que pone `X-Client-IP`, app) y recorre
+  Setup → semilla → modal → Trips → toda la jornada → Results → feedback →
+  compartir/email, más el **429 real** (`rate-limit.cy.js`, se gasta el límite
+  de 3/día a propósito) y la IP (`client-ip.cy.js`). Requiere Postgres, Redis
+  y mailpit arriba y los modelos/datos del release
+  (`infra/scripts/fetch-assets.sh`); el contador de rate limit se limpia con
+  `cy.task("redis_flush_db")` al principio de cada spec que crea días, porque
+  el orden de la corrida no debe decidir el resultado.
 - Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
   `Rscript tests/testthat.R`. **Pasa con y sin modelos y sin datos**: con
   `TAXI_MODELS_DIR=/nonexistent TAXI_DATA_DIR=/nonexistent` solo se salta
@@ -299,11 +299,10 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
 - Datos y Redis: el compose monta `${DATA_DIR}:/data:ro` (parquet de la semana
   + `ZonesShapes.qs2`, `DATA_DIR` en `.env`) y levanta `redis:7`
   (`nyctaxi-redis`); la API lee `DATA_DIR` y `REDIS_HOST`.
-- Stub local de la API: `Rscript dev/run_mock_api.R` (plumber2, **puerto
-  8010**, API programática `api_get`/`api_post`/`api_run`). **Ya se ejecuta:**
-  `test-shinytest2.R` lo levanta en un puerto aleatorio; a mano sirve para
-  probar la UI sin modelos ni base de datos. El endpoint real sigue siendo
-  `api/plumber.R`.
+- La API real a mano (cwd = raíz): `nix-shell api/default.dev.nix --run
+  "Rscript api/plumber.R"`. `app/dev/e2e.sh` la arranca sola si nadie responde
+  en `TAXI_API_URL` (y también `share/`), así que la suite de navegador no
+  depende de que la recuerdes levantar.
 - Contenedor de desarrollo (cwd = raíz): `./setup.sh` (`-np` para no hacer pull).
   Hoy la imagen solo levanta sshd (host :2222, repo en `/root/NycTaxiApp`): es el
   entorno de desarrollo, **no** las imágenes de despliegue del §1.1.
@@ -316,11 +315,11 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
   recuentos que fuera).
   - **Se construye y se sube AQUÍ, no en CI** (`nix/` cambia mucho menos que
     el código y un runner no debería pagar por recompilar el entorno).
-    Desde la raíz: `./infra/scripts/dev-image.sh build` (hace
-    `docker build --label nix-hash=…` + `docker push`). **Ojo:** cambiar un
-    fichero de `nix/` invalida las capas siguientes y Nix recompila desde
-    source — el build cuesta **horas**, no minutos; cuenta con ello antes de
-    tocar `nix/`.
+    Desde la raíz: `./infra/scripts/dev-image.sh build` (arranca el binario
+    cache, hace `docker build --network=host --label nix-hash=…`, alimenta el
+    cache desde la imagen resultante, la sube y para el servidor). **Ojo:**
+    cambiar un fichero de `nix/` invalida las capas siguientes, pero ya no
+    cuesta horas — ver "El binario cache local de Nix" abajo.
   - **CI se niega a testear contra una imagen desactualizada:**
     `dev-image.sh check` compara la etiqueta `nix-hash` de la imagen con la
     de este checkout y falla **antes** de ejecutar un solo test, diciendo qué
@@ -331,15 +330,52 @@ y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
     `cypress verify` **dentro del build** para que un entorno roto falle ahí.
     `pkgs.cypress` está marcado inseguro en el pin, por eso va por npm y no
     por `permittedInsecurePackages` (ADR-0011/0012). Los tests E2E se lanzan
-    con `nix-shell app/default.dev.nix --run "./dev/e2e.sh"` (arranca app y
-    `dev/mock_api.R`, espera a que la app responda y ejecuta `cypress run`).
+    con `nix-shell app/default.dev.nix --run "./dev/e2e.sh"` (arranca API,
+    share/, el proxy de `X-Client-IP` y la app, espera a que la app responda y
+    ejecuta `cypress run`).
     Ojo: `CYPRESS_CACHE_FOLDER` hay que ponerlo dentro del script — una sesión
     SSH no hereda el ENV del contenedor y `~/.cache/Cypress` está vacío.
   - **La imagen hornea los shells que los tests usan** (capa 9d del
     `Dockerfile`: `api/default.dev.nix` y `share/default.dev.nix`), para que
     `nix-shell` no compile nada en el runner. El de la UI **no** va horneado
-    porque arrastraría `nix/test-tools.nix` (chromium, 1,3 GB): el test de
-    flujo lo baja del cache binario al primer uso.
+    porque arrastraría su propio pin (`nix/pkgs-app.nix`); se construye bajo
+    demanda y ya no arrastra navegador alguno.
+
+## El binario cache local de Nix (ADR-0013)
+
+- **Por qué existe:** `nix/` no está cubierto por los caches públicos.
+  Sondeado con store paths reales (no supuestos): `rstats-on-nix.cachix.org`
+  responde y es público, pero de los 400 paths que bajó la capa de la API en
+  el build del 2026-10-08, **6 vinieron de ahí** y 394 de `cache.nixos.org`;
+  `r-purrr-1.2.0` y `R-4.5.2` del pin API dan **404 en ambos**. Y como
+  `nix/r-slim.nix` (ADR-0011) cambia la derivación de R, `R-4.6.1` tampoco
+  está. De ahí 747 s compilando R y 1099 s para 134 paquetes R. **La caché de
+  capas de Docker no podía ser la respuesta**: la capa que hay que re-ejecutar
+  es exactamente la que construyó esos paquetes.
+- **Cómo funciona:** `~/.cache/nyctaxi-nixcache` (perilla `NYCTAXI_NIX_CACHE`)
+  se sirve en `127.0.0.1:8093` mientras dura el build y `nix.conf` lo referencia
+  con `extra-substituters` + `extra-trusted-public-keys`. **`extra-` es
+  obligatorio**: una segunda línea `substituters =` la *reemplaza* (comprobado
+  con `NIX_CONF_DIR`). El feed firma el cierre de los perfiles con
+  `nix store sign` y después `nix copy` con `zstd` paralelo — `nix copy
+  --option secret-key-files` **no** firma, y Nix 3.23 no tiene `--signer`.
+- **Tres cosas que no se pueden tocar:**
+  - `--network=host` forma parte de la cache key de **cada** capa `RUN`.
+    `dev-image.sh` lo pasa siempre; un `docker build` a mano sin él invalida
+    todo otra vez.
+  - La clave pública está **hardcodeada** en el `Dockerfile` y la privada vive
+    en `~/.cache/nyctaxi-nixcache/signing.key`: **no se puede regenerar sola**
+    (habría que cambiar las dos mitades a la vez y rebuild). Si falta, `build`
+    falla en voz alta en vez de alimentar nada en silencio.
+  - Los ficheros del cache los escribe el contenedor como **root**: se leen
+    bien (el servidor corre como el usuario), pero para borrarlos hace falta
+    un contenedor root — `docker run --rm -v "$CACHE_DIR:/cache" alpine rm -rf
+    /cache/nar`. El feed lo reconstruye desde la imagen.
+- **Medido con el cambio dentro:** capas **3223 s → 347 s (9,3×)**, la capa
+  de la API 1098,7 s → **36,9 s** con **0** derivaciones construidas; la
+  siembra cuesta ~2 min. **Con el servidor caído el build no falla**: Nix
+  re-consulta `nix-cache-info` una vez (~1 s) y sigue. Detalle y alternativas
+  descartadas en `docs/decisions/0013-local-nix-binary-cache.md`.
 
 ## Experimentos (fase 3): create asíncrono
 - **Divergencia con §4.6** (anotada en `CHANGELOG.md`): `POST /experiments`
@@ -380,10 +416,9 @@ Para reevaluar o validar cualquier código R, siempre este flujo:
      · `nix-shell share/default.dev.nix` (y las variantes `default.prod.nix`,
      que dejan fuera las herramientas de test). Con el pin de
      nixpkgs correspondiente; el primero que se use puede descargar el
-     tarball (la imagen solo hornea el pin raíz), y `app/default.dev.nix`
-     descarga `chromium` la primera vez (~1,3 GB desde el binario cache).
+     tarball (la imagen solo hornea el pin raíz).
 5. **Validar dentro de ese shell:** `Rscript tests/testthat.R` (en `app/` o en
-   `api/`), el mock API, o cualquier chequeo de sintaxis/cargas. Si R falla aquí
+   `api/`), la API real, o cualquier chequeo de sintaxis/cargas. Si R falla aquí
    o el shell no levanta, el problema es del entorno Nix, no del código.
 
 Si el flujo falla en cualquier paso: `docker logs nyc-taxi-app` antes de tocar código.
@@ -690,16 +725,10 @@ Sale con 0 o con 1.
 **Todo lo demás que no puede hacerse desde aquí está en
 `docs/operations/first-deploy.md`**: secretos de GitHub, la VM, DNS
 (SPF/DKIM/DMARC), la regla de caché de Cloudflare y el monitor de
-disponibilidad — con qué crearlo y cómo verificarlo. Dos bloqueos viven en el
-propio repo, en el release de datos:
-
-- El release **`v0.0.1-data` no publica `SHA256SUMS`** → `fetch-assets.sh`
-  aborta siempre. Es lo que §4.5 pide, pero hay que subir el manifiesto
-  (`cd <ficheros> && sha256sum * > SHA256SUMS`).
-- El release **no tiene `ReferenceDistribution.qs2`** → `/finish` responde 503
-  sin él (ver "Experimentos"). Se genera con
-  `tools/build_reference_distribution.R` (~75 min) y hay que subirlo **con** su
-  hash.
+disponibilidad — con qué crearlo y cómo verificarlo. Los dos bloqueos que
+vivían en el **release de datos ya están cerrados**: `v0.0.1-data` publica
+`SHA256SUMS` y `ReferenceDistribution.qs2`, y una corrida limpia de
+`fetch-assets.sh` (directorios vacíos) sale 0 con `assets ready`.
 
 ### No ejecutable desde aquí
 
@@ -723,9 +752,10 @@ Se interpreta como "no es un cliente de la API". Divergencia anotada en
 - **Peso de las imágenes:** ver "Peso de las imágenes" arriba — ya medido;
   la parte alcanzable sin tocar R está hecha (ADR-0008) y la de R queda
   anotada.
-- ~~`shinytest2` en el set de runtime de la UI~~ — resuelto (ADR-0007): vive
-  en `nix/test-tools.nix` junto al navegador. Ojo: `app/default.dev.nix` tiene
-  que nombrarlo en `R_LIBS_SITE`, o R no lo ve y el test de flujo se salta.
+- ~~`shinytest2` en el set de runtime de la UI~~ — cerrado del todo: ADR-0007
+  lo sacó de la imagen y ADR-0014 lo borró junto con `nix/test-tools.nix` y
+  el navegador. La suite de navegador es Cypress y su binario lo trae la
+  imagen (capa 11), no Nix.
 
 ## Fuente de verdad y prioridad entre documentos
 - **Documento maestro = decisiones de arquitectura; no se edita.** Si el código

@@ -1,8 +1,8 @@
 # Section 11's structured request log, unit by unit.
 #
-# The log itself is checked end to end by the flow that produced it (see the
-# DIAG lines in app/tests/testthat/test-shinytest2.R and the notes in
-# AGENTS); what was never checked was the middleware: what it attaches to the
+# The log itself is exercised end to end whenever the browser suite runs
+# against the real API (app/dev/e2e.sh drives every route through it); what
+# was never checked was the middleware: what it attaches to the
 # request, what it does when auth is the other half of the same hook, and
 # whether the line it prints really carries the six fields and no address.
 

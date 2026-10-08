@@ -450,6 +450,47 @@ goes where.
 - **The development image grew from 7.51 GB to 8.97 GB** with node, Cypress
   and the Electron libraries. It is a development image: no deployment one
   carries any of it.
+- **The development image is fed by a signed local Nix binary cache**
+  (ADR-0013). The public caches do not cover what this image compiles:
+  probing real store paths from the build, `rstats-on-nix.cachix.org` is
+  public but supplied **6 of the 400** paths the API layer fetched (394 came
+  from `cache.nixos.org`), and `r-purrr-1.2.0` and `R-4.5.2` are **404 on
+  both** — while `nix/r-slim.nix` deliberately changed R's derivation, so
+  `R-4.6.1` is no longer the cached binary either. A change in `nix/` thus
+  recompiled R (747 s) and 134 R packages (1099 s): **3223 s of layers, ~64
+  min with the push**. `dev-image.sh build` now serves
+  `~/.cache/nyctaxi-nixcache` on `127.0.0.1:8093` for the duration of the
+  build, signs the closure of the profiles from the image it just built, and
+  Docker layer caching could never have been the answer — the layer that has
+  to re-run is the one holding the packages. The rebuild that landed this:
+  **3223 s → 347 s (9.3×)**, API layer 1098.7 s → 36.9 s, zero derivations
+  built, 1052 paths from the loopback cache. The server being down is not a
+  failure (Nix re-queries `nix-cache-info` once, ~1 s); what must not be
+  dropped is `--network=host`, which is part of every layer's cache key.
+  Image 8.97 GB → 8.91 GB.
+- **The browser suite tests the real API, and the mock is gone** (ADR-0014).
+  ADR-0012 left `app/dev/mock_api.R` in place because "Cypress needs an API to
+  talk to"; putting the two side by side showed what that cost. The mock's
+  canned `better_datetime` was `2024-05-12T20:00:00Z` where the API answers
+  `2024-05-14T15:00:00Z`, and for the form's defaults the API echoes the input
+  back, so `validation_hints()` shows **no** datetime hint at all — the
+  scenario that asserted the canned one would have failed against the service
+  it stood in for. What landed: `app/dev/e2e.sh` starts the API, `share/` and
+  `app/dev/e2e-proxy.js`, a proxy that carries `X-Client-IP: 203.0.113.9` on
+  the page load **and on the WebSocket handshake** — Shiny reads the header
+  there and `cy.intercept` cannot reach a handshake, which is the assumption
+  `docs/PLANS.md` had and corrected. Four specs (`setup-screen`, `full-day`,
+  `rate-limit`, `client-ip`) cover the 14 scenarios, including the **real
+  429**: the limiter spends three attempts a day per IP, counts the ones that
+  fail validation too, and the fourth returns the API's own message instead of
+  one a stub was told to send. The percentile is the model's (`99th` of 1,000
+  simulated days), the email prompt goes through the real `share/` and
+  mailpit, and Redis is reset per spec with `cy.task("redis_flush_db")` — raw
+  RESP over a socket, no npm dependency — so the order of the run cannot
+  decide the outcome. Deleted: `app/dev/mock_api.R`,
+  `app/dev/run_mock_api.R` and `app/tests/testthat/test-shinytest2.R` (541
+  lines, 14 blocks). `test-shiny` in CI now carries Postgres, Redis, mailpit
+  and the release assets verified by `fetch-assets.sh`.
 
 ### Changed
 - **§7.1 describes three layers for the card and there are now two.** The

@@ -30,10 +30,23 @@ date.
 - **CI**: five jobs green on one run (`test-contract`, `test-api` — including
   the coverage step at `COVERAGE_FAIL_UNDER=60` — `test-share`,
   `test-integration`, `test-shiny`), with the three image builds behind them.
+- **Browser suite against the real API** (ADR-0014): the 14 scenarios migrated
+  to Cypress (`setup-screen`, `full-day`, `rate-limit`, `client-ip`),
+  `dev/mock_api.R` and `test-shinytest2.R` deleted, `nix/test-tools.nix` with
+  chromium and `shinytest2` out of `nix/`, dev image rebuilt and pushed
+  (`nix-hash=864dfe25704f23ac`, 10.5 minutes, 0 derivations compiled).
+  ADR-0013 is the other half of that build: the loopback Nix binary cache.
 
-### In progress
+### How the CI jobs got green — history
 
-Nothing in flight. The CI history below explains how it got green:
+The migration above was held by the data release: `test-shiny` runs
+`fetch-assets.sh` on purpose, so it stayed red (with the reason) until
+`v0.0.1-data` published `SHA256SUMS` **and** `ReferenceDistribution.qs2`.
+Both are up now, and the verification passed before the commit: a clean run
+into empty directories (`MODELS_DIR=/tmp/m DATA_DIR=/tmp/d`) exited 0 and
+printed `assets ready`, the distribution's hash on the release matched the
+one in `SHA256SUMS`, and `dev-image.sh check` matched
+`nix-hash=864dfe25704f23ac`.
 
 - Job logs need admin rights to read through the API, so `infra/scripts/ci_report.sh`
   turns a test log into **public annotations** (`GET .../check-runs/{id}/annotations`)
@@ -101,36 +114,49 @@ The other three numbers section 8 asks for do not need it — p95 of
 
 ---
 
-## PROPOSAL — Cypress as the UI, E2E and load tool — **accepted, in progress** (ADR-0012)
+## PROPOSAL — Cypress as the UI, E2E and load tool — **accepted, landed** (ADR-0012, closed by ADR-0014)
 
 Asked for 2026-10-08 and **answered: six questions, all six decided** (see ADR-0012's table). The ask was: *use Cypress for the Shiny app E2E and for measuring
 resources per user and reliability under concurrent users with different
 decision strategies; whatever Cypress can do, Cypress does, and the old
 scripts and dependencies are removed.* **Landed so far:** `nix/node.nix`, Dockerfile layer 11 (Cypress baked and
 `cypress verify` running in the build), `app/package.json`,
-`app/cypress.config.cjs`, `app/cypress/support/`, `app/dev/e2e.sh` and the
-first spec — `setup-screen.cy.js`, **2 passing against the real app with the
-mock API**. R-slim (the R half of the same push) is ADR-0011 and is done.
+`app/cypress.config.cjs`, `app/cypress/support/`, `app/dev/e2e.sh`,
+`app/dev/e2e-proxy.js` and **every scenario, in four specs, against the real
+API** (ADR-0014): `setup-screen.cy.js`, `full-day.cy.js`, `rate-limit.cy.js`
+and `client-ip.cy.js`. `app/dev/mock_api.R`,
+`app/dev/run_mock_api.R` and `test-shinytest2.R` are deleted, and
+`./dev/e2e.sh` starts the API, share/, the client-IP proxy and the app.
+R-slim (the R half of the same push) is ADR-0011 and is done.
 
-**Still to do:** migrate the other 13 scenarios (both suites run until the
-last one lands), `app/dev/load_test.sh` (N sessions, two strategies, server
-CPU/RSS), pa11y via Lighthouse, the CI job, and the deletion commit.
+**Still to do:** `app/dev/load_test.sh` (N sessions, two strategies, server
+CPU/RSS) and pa11y via Lighthouse. The deletion commit ADR-0012 called for --
+`shinytest2`, `chromium` and `nix/test-tools.nix` out of `nix/` -- is done:
+the image was rebuilt and pushed with the new `nix-hash`, in 10.5 minutes
+with nothing compiled, thanks to the binary cache.
 
 ### Feasibility, measured
 
 - `nodejs`, `cypress` **and** `playwright` all exist in `nix/pkgs.nix`
   (`builtins.hasAttr` → true). The dev container has **no node and no npm**
   today.
-- The migration target is concrete: `app/tests/testthat/test-shinytest2.R`,
-  **541 lines and 14 `test_that` blocks** (Setup validation, hints, the 429
-  message, the custom seed, the resume modal, Trips, accept moves the clock,
-  arrow keys, the `?` dialog, finish → Results, KPIs, feedback, share links,
-  and `X-Client-IP`).
+- The migration target was concrete and is now gone:
+  `app/tests/testthat/test-shinytest2.R`, **541 lines and 14 `test_that`
+  blocks** (Setup validation, hints, the 429 message, the custom seed, the
+  resume modal, Trips, accept moves the clock, arrow keys, the `?` dialog,
+  finish → Results, KPIs, feedback, share links, and `X-Client-IP`). Each one
+  is a Cypress assertion now.
 
 ### What Cypress gains
 
-- **`cy.intercept`**: the 429-message test and the `X-Client-IP` header test
-  become network assertions instead of browser-CDP tricks.
+- **`cy.intercept`**: the 429-message test becomes a network assertion
+  instead of a browser-CDP trick -- and 429 needed no interception at all:
+  the limiter is real, so `rate-limit.cy.js` spends the three daily attempts
+  and reads the API's own message.
+  The `X-Client-IP` header is the counter-example this plan got wrong:
+  `cy.intercept` cannot touch a WebSocket handshake, which is where Shiny
+  reads the header from, so the answer was a proxy in front of the app
+  (`dev/e2e-proxy.js`) rather than an interception inside the browser.
 - **Video and screenshots** → the section 9 demo (60–90 s) is a by-product.
 - Retries, time-travel debugging, reporters, `cy.task` (Node side, so a spec
   can read Redis or Postgres directly to assert server state).
@@ -169,13 +195,18 @@ the edge of the DOM.
   model-only), is the bulk of the work.
 - Adding node/Cypress to the **dev container** means a new Nix layer — and
   changing an early layer of `Dockerfile` costs a full rebuild of everything
-  after it (**hours**, as the ADR-0008 work measured). Putting it in a shell
-  that is not baked (the `test-tools.nix` pattern) avoids that at the price of
-  downloading it on first use.
+  after it (**hours**, as the ADR-0008 work measured). Now that ADR-0013's
+  binary cache is in place that stops being hours — the same rebuild went
+  54 min of layers to 5 — but the cache is only fed from an image that exists,
+  so a genuinely new dependency still pays its first compile. Putting it in a
+  shell that is not baked (the `test-tools.nix` pattern) avoids that at the
+  price of downloading it on first use.
 - CI needs the Cypress binary cached or it downloads ~200 MB per run.
-- `shinytest2`, `chromote`, `chromium` and `shinyloadtest` all become dead
-  weight once the migration lands; `app/dev/mock_api.R` does **not** (Cypress
-  still needs an API to talk to).
+- `shinytest2`, `chromote`, `chromium`, `shinyloadtest` **and**
+  `app/dev/mock_api.R` all became dead weight when the migration landed: the
+  browser suite talks to the real API (ADR-0014). The mock and
+  `nix/test-tools.nix` (which held `shinytest2` and `chromium`) are deleted,
+  `chromote` went with them, and `shinyloadtest` was never in the pin.
 
 ### Questions before starting
 
@@ -397,6 +428,6 @@ count the view or the render tally. All four suites green, Spectral 0 errors.
 
 Everything is in [`docs/operations/first-deploy.md`](operations/first-deploy.md):
 GitHub secrets for the deploy, SMTP credentials + SPF/DKIM/DMARC, the
-Cloudflare cache rule and DNS, UptimeRobot, the VM swap. Plus two gaps in the
-data release: `v0.0.1-data` publishes no `SHA256SUMS`, and it has no
-`ReferenceDistribution.qs2`.
+Cloudflare cache rule and DNS, UptimeRobot, the VM swap. The two gaps in the
+data release are closed: `v0.0.1-data` now publishes `SHA256SUMS` and
+`ReferenceDistribution.qs2`, both verified by a clean `fetch-assets.sh` run.

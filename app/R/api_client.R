@@ -150,10 +150,10 @@ api_decide <- function(ctx, experiment_id, trip_id, accepted) {
 }
 
 # POST /experiments/{id}/finish -> the finished Experiment record with the
-# results. The route declares no requestBody (contract/openapi.yaml), and the
-# real API answers it with or without one; dev/mock_api.R needs the request to
-# carry a body before plumber2 dispatches the route at all, so an empty object
-# is sent -- exactly what api/dev/e2e_experiments.sh does with `-d '{}'`.
+# results. The route declares no requestBody (contract/openapi.yaml) and the
+# real API answers it with or without one; an empty object is sent anyway so
+# the POST carries a body -- exactly what api/dev/e2e_experiments.sh does with
+# `-d '{}'`.
 api_finish <- function(ctx, experiment_id) {
   api_request(ctx, file.path("experiments", experiment_id, "finish"),
               resume = TRUE) |>

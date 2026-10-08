@@ -26,10 +26,6 @@ in pkgs.mkShell {
   LC_ALL = "en_US.UTF-8";
   LC_MONETARY = "en_US.UTF-8";
   LC_PAPER = "en_US.UTF-8";
-  # shinytest2 refuses to launch AppDriver when testthat thinks we are on
-  # CRAN. Not needed here (no browser in production), kept so an accidental
-  # flow test in this shell fails loudly instead of silently skipping.
-  NOT_CRAN = "true";
   FONTCONFIG_FILE = "${pkgs.fontconfig.out}/etc/fonts/fonts.conf";
   FONTCONFIG_PATH = "${pkgs.fontconfig.out}/etc/fonts/";
   shellHook = ''

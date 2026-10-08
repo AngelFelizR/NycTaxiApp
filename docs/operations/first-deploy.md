@@ -13,18 +13,15 @@ Companion documents: `runbook.md` for what happens *after* the first deploy,
 ## 1. The data release must be verifiable
 
 `infra/scripts/fetch-assets.sh` refuses to install anything it cannot check
-(section 4.5), and the deploy job runs it before touching the stack. As of
-today the `v0.0.1-data` release is **not deployable**, for two reasons: it
-publishes no `SHA256SUMS`, and it does not carry `ReferenceDistribution.qs2`
-(so `/finish` answers 503 and a day can never end).
+(section 4.5), and the deploy job runs it before touching the stack.
 
-Both files already exist on the workstation — they were never *published*:
+**Done (2026-10-08):** the `v0.0.1-data` release publishes both
+`SHA256SUMS` and `ReferenceDistribution.qs2`, and the verification below
+exited 0 with `assets ready`. The section stays because it is the procedure
+for the *next* data release, and because the deploy re-runs the check every
+time.
 
-```sh
-ls -la ~/nyctaxi/models/ReferenceDistribution.qs2   # 12 kB, generated 2026-10-05
-```
-
-**What has to be uploaded** (six assets plus the manifest; `make-manifest.sh`
+**What goes on a release** (six assets plus the manifest; `make-manifest.sh`
 knows the list, and it handles the fact that the files live in two
 directories):
 

@@ -1,6 +1,7 @@
 # Development/testing tools shared by the root shell and the service shells:
-# testthat runs every suite and plumber2 runs app/dev/mock_api.R (the flow test
-# drives the UI against it). `pkgs` is a parameter: see nix/r-shiny.nix.
+# testthat runs every suite and plumber2 is what a test boots in a child
+# process (share/tests/testthat/helper-boot.R serves a stub of the API with
+# it). `pkgs` is a parameter: see nix/r-shiny.nix.
 #
 # NOT here: devtools and roxygen2. Nothing can use them -- app/ is explicitly
 # not an installed package (no NAMESPACE, no man/; see AGENTS.md) and api/ has

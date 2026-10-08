@@ -78,7 +78,8 @@ taxi-day/
 ```
 
 El `dev/mock_api.R` de la app deja de ser imprescindible: se puede levantar la API real
-con `docker compose up`. Conviene conservarlo para correr la UI sin el modelo.
+con `docker compose up`. **Ya no existe** — la UI se prueba contra la API real
+(`docs/decisions/0014`), que es precisamente lo que el monorepo permite.
 
 ### B) Repos separados
 
@@ -90,6 +91,7 @@ taxi-day-app/   # el proyecto actual
 Reglas para que funcione bien:
 
 - El contrato se publica desde el repo de la API (release/tag) y la app fija la versión que usa.
-- La app mantiene `dev/mock_api.R` como *stub del consumidor* y un test que lo valida
-  contra el contrato publicado.
+- La app llevaría un stub del consumidor (lo que fue `dev/mock_api.R`, retirado
+  en [`0014`](decisions/0014-the-ui-tests-the-real-api.md)) y un test que lo
+  valida contra el contrato publicado.
 - Un cambio incompatible exige subir la versión mayor del contrato y coordinar el despliegue.

@@ -37,7 +37,7 @@ was written):
 | Where do "resources per user" come from | **the server**: CPU and RSS of the Shiny process while N sessions run, not Cypress's own timings (those measure the browser driving it) |
 | How N concurrent users run | **N sessions against one app** — the unit ShinyProxy scales (`max-total-instances`) |
 | What moves to Cypress | only `test-shinytest2.R`'s 14 scenarios, plus `pa11y` via Lighthouse; the ~1 500 R assertions that are not browser tests stay |
-| The old strategy | **deleted, no traces**: `test-shinytest2.R`, `shinytest2`, `chromode`'s role and `chromium`. `app/dev/mock_api.R` **stays** — Cypress needs an API to talk to |
+| The old strategy | **deleted, no traces**: `test-shinytest2.R`, `shinytest2`, `chromode`'s role and `chromium`. `app/dev/mock_api.R` **stays** — Cypress needs an API to talk to (**the second half superseded by [`0014`](0014-the-ui-tests-the-real-api.md)**: the suite talks to the real API, so the mock goes too) |
 | Where Cypress lives | **baked into the development image** (layer 11), because it does not change often |
 | Order | migrate **in parallel**, delete the old test only when the 14 scenarios are green in CI |
 
@@ -47,9 +47,9 @@ was written):
 measurements are written in Cypress. `shinytest2` is removed when the last of
 the 14 scenarios has landed.**
 
-- **`app/dev/e2e.sh`** owns the two processes Cypress cannot start (the app
-  and, by default, `dev/mock_api.R`), waits for the app to answer *saying why
-  it did not* if it never does, and runs `cypress run`.
+- **`app/dev/e2e.sh`** owns the processes Cypress cannot start (the API,
+  share/, the client-IP proxy and the app), waits for the app to answer
+  *saying why it did not* if it never does, and runs `cypress run`.
 - **`app/cypress.config.cjs`** is a plain object, not `defineConfig()`:
   Cypress is installed once in the image rather than in `node_modules`, so
   `require("cypress")` would fail with "Cannot find module".
@@ -98,6 +98,9 @@ the 14 scenarios has landed.**
   decision strategies, server CPU/RSS) and **§8's "PNG cache hits" is
   unreachable**: Plan D (ADR-0010) removed the cache it counted. Divergences
   annotated in `CHANGELOG.md`.
-- **The 14 scenarios are a migration, not a rewrite**: both suites run until
-  the last one has landed, then `test-shinytest2.R`, `shinytest2` and the
-  `chromium` it drove are deleted in one commit.
+- **The 14 scenarios are a migration, not a rewrite**: both suites ran until
+  the last one landed. `test-shinytest2.R`, the mock it drove, `shinytest2`
+  and the `chromium` it drove are all gone — the mock half of "the old
+  strategy" superseded by [`0014`](0014-the-ui-tests-the-real-api.md), the
+  rest as the deletion commit this ADR called for. It changed `nix/`, so the
+  development image was rebuilt and pushed.

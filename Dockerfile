@@ -12,20 +12,15 @@
 # If you add a new r-*.nix, add its corresponding layer here too
 # (Layer 9 will also pick it up automatically as a safety net).
 #
-# Two files under nix/ deliberately have NO layer here:
+# Some files under nix/ deliberately have NO layer here:
 #   - nix/r-app.nix    the UI aggregate; it only chains the layers below, so
 #                      baking it would add nothing but would pull in anything
 #                      added to it later. The repo is mounted at runtime, so
 #                      `nix-shell app/default.dev.nix` builds it on demand.
-#   - nix/test-tools.nix  the shinytest2 browser (chromium, 1.3 GB). Keeping
-#                      it out of every layer is the point: no image ships a
-#                      browser it never runs. The UI flow test fetches it from
-#                      the binary cache on first use, under
-#                      `nix-shell app/default.dev.nix`.
 #   - nix/system-runtime.nix  the images' system layer (without `nix`); this
 #                      is the development environment, so it keeps nix.
 #   - nix/pkgs-app.nix / nix/r-app.nix  only app/default.dev.nix uses them and
-#                      that shell is not baked (see test-tools above).
+#                      that shell is not baked.
 
 FROM ubuntu:24.04
 
@@ -52,11 +47,21 @@ RUN curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/
 # was not configured yet: one local rebuild spent 40 minutes inside a single
 # arrow.cc object. A cache configured after the work it should have saved
 # saves nothing.
+#
+# The two public caches cover the generic half only: R 4.6.1 (r-slim) and the
+# R packages of the 2025-12-02 API pin have no binary anywhere, so an
+# invalidation recompiles them -- 747 s for R itself inside system.nix and
+# 1099 s for 134 R packages inside r-api.nix, two of the four Nix layers. The
+# last two lines point at a binary cache on the build host, fed from the image
+# that was just built (infra/scripts/dev-image.sh); it is loopback, so a build
+# without it costs one second of connection retries, not a failure. See ADR-0013.
 RUN mkdir -p /etc/nix && \
     echo "sandbox = false" >> /etc/nix/nix.conf && \
     echo "nix-path = nixpkgs=https://github.com/rstats-on-nix/nixpkgs/archive/2026-09-28.tar.gz" >> /etc/nix/nix.conf && \
     echo "substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org" >> /etc/nix/nix.conf && \
-    echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=" >> /etc/nix/nix.conf
+    echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=" >> /etc/nix/nix.conf && \
+    echo "extra-substituters = http://127.0.0.1:8093" >> /etc/nix/nix.conf && \
+    echo "extra-trusted-public-keys = nyctaxi-dev-cache:tmG8F14/vTDOMkLWda0MC+V0C9Lm48HZBiVqjnfrvQg=" >> /etc/nix/nix.conf
 
 ENV PATH="${PATH}:/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin" \
     BASH_ENV=/nix/var/nix/profiles/default/etc/profile.d/nix.sh \
@@ -127,9 +132,9 @@ RUN nix-build /root/nix/r-shared.nix -o /nix/profiles/r-shared && \
 # root one. Their expressions are copied next to /root/nix so the `../nix/...`
 # they import resolves exactly as it does in the repository.
 #
-# The UI shell is deliberately NOT here: it would pull nix/test-tools.nix
-# (chromium, 1.3 GB), and the header of this file says no layer carries a
-# browser. The flow test fetches it from the binary cache on first use.
+# The UI shell is deliberately NOT here: it is pinned to nix/pkgs-app.nix, so
+# baking it would tie this layer to the UI's pin and the shell is built on
+# demand from the mounted repository instead.
 COPY nix/r-share.nix /root/nix/r-share.nix
 COPY api/default.dev.nix /root/api/default.dev.nix
 COPY share/default.dev.nix /root/share/default.dev.nix

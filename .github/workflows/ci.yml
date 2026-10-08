@@ -8,7 +8,7 @@
 #   test-contract   spectral lint of both OpenAPI documents (10 s, always)
 #   test-api        testthat inside the dev image, with a real Postgres and
 #                   Redis service container
-#   test-shiny      the UI suite, including the shinytest2 flow in Chromium
+#   test-shiny      the UI unit suite plus Cypress against the real API
 #   test-share      the public share service suite
 #   test-integration  the three descriptions of the system against each other
 #   build-*         multi-arch image to GHCR (latest + :sha)
@@ -33,9 +33,11 @@
 #     `--network host`, which is how they reach the service containers on
 #     localhost. Nothing there is architecture sensitive, and the
 #     rstats-on-nix binary cache has both.
-#   - The API suite passes with no models and no dataset mounted, so CI never
-#     downloads the 534 MB release. The UI flow test needs ZonesShapes.qs2
-#     (1 MB) and downloads it.
+#   - The API suite passes with no models and no dataset mounted, so test-api
+#     never downloads the release. test-shiny does: the browser suite talks to
+#     the real API, which needs the dataset to play a day and the reference
+#     distribution for /finish to answer. The download is cached and verified
+#     by infra/scripts/fetch-assets.sh (section 4.5).
 
 name: CI
 
@@ -222,22 +224,57 @@ jobs:
         run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/coverage.log" "coverage"
 
   # ---------------------------------------------------------------------
-  # test-shiny: app/default.dev.nix carries chromium through test-tools.nix.
-  # The flow test refuses to run otherwise and skips instead of failing, so
-  # the shell is part of the assertion, not an implementation detail.
+  # test-shiny: the unit suite, then Cypress against the real stack. The
+  # browser suite is an integration test now (ADR-0012), so the job carries
+  # what the dev container carries: Postgres and Redis as in test-api, the
+  # mail catcher for the email prompt, and the models + dataset from the
+  # release. app/dev/e2e.sh starts the API, share/ and the client-IP proxy
+  # inside the container, so the recipe is the same one used locally.
   # ---------------------------------------------------------------------
   test-shiny:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.nix == 'true'
-    # The flow test drives the real Setup screen, and Setup builds its zone
-    # choices from ZonesShapes.qs2 (1 MB). A runner has no data volume, so
-    # app_options() came back with no zones, the map stayed empty and the test
-    # timed out waiting for #setup-validate. The parquet and the models are
-    # still not downloaded: dev/mock_api.R answers every API call, which is
-    # why the rest of the release (534 MB) stays out of CI.
+    if: >-
+      needs.changes.outputs.app == 'true' || needs.changes.outputs.nix == 'true'
+      || needs.changes.outputs.api == 'true' || needs.changes.outputs.share == 'true'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nyctaxi
+          POSTGRES_PASSWORD: nyctaxi
+          POSTGRES_DB: nyctaxi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nyctaxi -d nyctaxi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+      # POST /share-email pulls the card from share/ and answers 503 without a
+      # relay (5.6), which is what the email prompt in Results exercises.
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 1025:1025
+          - 8025:8025
     env:
-      DATA_DIR: /tmp/nyctaxi-ci-data
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: nyctaxi
+      POSTGRES_USER: nyctaxi
+      POSTGRES_PASSWORD: nyctaxi
+      REDIS_PORT: "6379"
+      MODELS_DIR: /models
+      DATA_DIR: /data
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
@@ -254,26 +291,50 @@ jobs:
         run: |
           docker pull "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest"
           ./infra/scripts/dev-image.sh check
-      # The flow test drives the real Setup screen, and Setup builds its zone
-      # choices from ZonesShapes.qs2 (1 MB of the 534 MB release -- the rest
-      # stays out of CI because dev/mock_api.R answers every API call).
-      - name: zone shapes (1 MB)
+      # 562 MB of release assets, restored from the cache when the key hits and
+      # downloaded once when it does not. fetch-assets.sh verifies the
+      # checksums (4.5) and aborts loudly if the release does not publish
+      # SHA256SUMS -- which is deliberate: a browser suite run against
+      # unverified models is not a result worth having.
+      - name: restore the model and dataset cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/nyctaxi/models
+            ~/nyctaxi/data
+          key: nyctaxi-data-v0.0.1-data
+      - name: fetch the release assets (verified)
         run: |
-          mkdir -p "$RUNNER_TEMP/data"
-          curl -fsSL -o "$RUNNER_TEMP/data/ZonesShapes.qs2" \
-            https://github.com/AngelFelizR/NycTaxiApp/releases/download/v0.0.1-data/ZonesShapes.qs2
-      - name: UI tests (inside the dev image)
+          MODELS_DIR="$HOME/nyctaxi/models" DATA_DIR="$HOME/nyctaxi/data" \
+            ./infra/scripts/fetch-assets.sh v0.0.1-data
+      - name: UI unit tests (inside the dev image)
         run: |
           set -o pipefail
           docker run --rm --network host --shm-size=2g \
-            -v "$PWD:/root/NycTaxiApp" -v "$RUNNER_TEMP/data:/ci-data" \
-            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT -e DATA_DIR=/ci-data \
+            -v "$PWD:/root/NycTaxiApp" \
+            -v "$HOME/nyctaxi/models:/models:ro" -v "$HOME/nyctaxi/data:/data:ro" \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
+            -e MODELS_DIR -e DATA_DIR \
             "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest" \
             bash -c 'cd /root/NycTaxiApp/app && nix-shell default.dev.nix --run "Rscript tests/testthat.R"' 2>&1 \
             | tee "$RUNNER_TEMP/app.log"
-      - name: annotate failures
+      - name: annotate unit test failures
         if: failure()
         run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/app.log" "UI"
+      - name: browser suite (Cypress against the real API)
+        run: |
+          set -o pipefail
+          docker run --rm --network host --shm-size=2g \
+            -v "$PWD:/root/NycTaxiApp" \
+            -v "$HOME/nyctaxi/models:/models:ro" -v "$HOME/nyctaxi/data:/data:ro" \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD -e REDIS_HOST -e REDIS_PORT -e API_INTERNAL_KEY -e IP_HASH_SALT \
+            -e MODELS_DIR -e DATA_DIR \
+            "${REGISTRY}/angelfelizr/nyc-taxi-dev:latest" \
+            bash -c 'cd /root/NycTaxiApp/app && nix-shell default.dev.nix --run "./dev/e2e.sh"' 2>&1 \
+            | tee "$RUNNER_TEMP/e2e.log"
+      - name: annotate browser failures
+        if: failure()
+        run: ./infra/scripts/ci_report.sh "$RUNNER_TEMP/e2e.log" "E2E"
 
   # ---------------------------------------------------------------------
   # test-share: needs Redis (the cache and routes tests skip without it) but

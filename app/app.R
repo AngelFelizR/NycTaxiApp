@@ -9,7 +9,8 @@
 # the package (app/Dockerfile: R CMD INSTALL) so production takes the
 # library() branch; a development shell has no installed copy and loads the
 # source instead, with pkgload from nix/r-dev.nix. cwd is the app directory
-# in every entry point (runApp, the Docker CMD and shinytest2's AppDriver).
+# in every entry point (runApp, the Docker CMD and the browser suite, which
+# starts it through dev/e2e.sh).
 if (requireNamespace("taxiapp", quietly = TRUE)) {
   suppressPackageStartupMessages(library(taxiapp))
 } else {

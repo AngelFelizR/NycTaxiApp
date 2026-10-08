@@ -55,7 +55,9 @@ from the private network.
 
 - `contract/openapi.yaml` — private API (18 endpoints, all internal).
 - `contract/share.openapi.yaml` — public `share` service (3 routes).
-- `app/` — the Shiny app: `app.R`, `R/`, `www/`, `tests/`, `dev/mock_api.R`.
+- `app/` — the Shiny app: `app.R`, `R/`, `www/`, `tests/`, `cypress/` and
+  `dev/` (the harness that starts the API, share/, the client-IP proxy and
+  the app for the browser suite).
 - `shared/` — YAML visual config shared by `app/` and `share/`
   (`curves.yaml`, `brand.yaml`), read through `shared/load.R`.
 - `nix/` — pinned nixpkgs modules; `default.nix` at the root aggregates them.
@@ -74,8 +76,8 @@ R comes from Nix; there is no R outside the pinned environment.
 
 # Inside the container
 nix-shell                                  # root env (default.nix -A shell)
-cd app && Rscript tests/testthat.R         # UI tests
-Rscript dev/run_mock_api.R                 # local API stub on :8000
+cd app && Rscript tests/testthat.R         # UI unit tests
+./dev/e2e.sh                               # browser suite: real API + share + proxy
 ```
 
 Secrets live in a single root `.env` (copy `.env.example`); it is gitignored.

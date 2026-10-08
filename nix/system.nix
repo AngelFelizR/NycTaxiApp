@@ -1,8 +1,8 @@
 # Generic system layer: the R interpreter, locales, fonts and the handful of
 # binaries every shell and every deployment image needs. Deliberately generic —
 # a service image must be able to reuse this layer without inheriting another
-# service's tools, which is why test-only tools (nix/test-tools.nix) and the
-# R package sets (nix/r-*.nix) live elsewhere.
+# service's tools, which is why the R package sets (nix/r-*.nix) live
+# elsewhere, and a test-only tool gets its own file rather than landing here.
 #
 # `pkgs` is a parameter so a caller can pin it: the UI passes pkgs-app.nix,
 # the root dev shell passes ./pkgs.nix. The default keeps `nix-build

@@ -10,11 +10,10 @@
 #   docker build -f app/Dockerfile -t ghcr.io/angelfelizr/nyc-taxi-shiny:latest .
 #
 # `withDev = false` drops nix/r-dev.nix: no testthat, no callr, no plumber2
-# (plumber2 only exists for dev/mock_api.R, which is not deployed) and no
-# pkgload. shinytest2 left nix/r-shiny.nix for nix/test-tools.nix (ADR-0007),
-# so the UI image no longer ships a browser driver it never runs; the browser
-# itself never did -- chromium lives in nix/test-tools.nix too and no image
-# imports it.
+# (the suites boot a stub API with it; the app never loads it) and no
+# pkgload. And no image ships a browser: shinytest2 and the chromium it drove
+# left with the migration to the real API (ADR-0014), and no deployment
+# imported them before that either.
 ###############################################################################
 
 ARG NIX_IMAGE=nixos/nix:2.35.2

@@ -20,10 +20,11 @@ let
   #    every module the filter below already adds. Consumed by
   #    app/default.dev.nix.
   #
-  # nix/test-tools.nix (the shinytest2 browser) is not named r-*.nix on
-  # purpose: this shell must stay free of test-only tools so the baked
-  # dev-shell profile does not grow by the 1.3 GB chromium closure. The
-  # UI flow test runs under `nix-shell app/default.dev.nix` instead.
+  # A test-only tool is not named r-*.nix on purpose: this shell has to stay
+  # free of them, or the baked dev-shell profile grows by the closure of
+  # whatever the tests happen to need -- chromium was 1.3 GB while the flow
+  # test drove it, and it went with shinytest2 when the browser suite moved to
+  # Cypress. The browser suite runs under `nix-shell app/default.dev.nix`.
   rModuleFiles = builtins.filter
     (name:
       pkgs.lib.hasPrefix "r-" name &&

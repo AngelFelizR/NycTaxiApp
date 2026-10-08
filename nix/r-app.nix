@@ -9,8 +9,9 @@
 #
 # `withDev` separates what the app RUNS from what it is TESTED with: the
 # production image (app/default.prod.nix, phase 7) drops r-dev.nix, whose
-# testthat/callr/plumber2 the app never loads at runtime -- plumber2 is only
-# there for dev/mock_api.R, which no deployment ships.
+# testthat/callr/plumber2 the app never loads at runtime -- those are what the
+# suites run with (share/tests boots a stub of the API with plumber2), not
+# what a deployment ships.
 { pkgs ? import ./pkgs-app.nix, withDev ? true }:
 let
   rShiny     = import ./r-shiny.nix     { inherit pkgs; };
