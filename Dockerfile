@@ -46,9 +46,17 @@ RUN curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/
     --init none \
     --no-confirm
 
+# The binary caches belong HERE, with the Nix installation. They used to sit
+# in a layer between the R ones, which meant every R layer above them -- r-dev,
+# r-geo, r-plotting, r-shiny -- compiled from source because the substitution
+# was not configured yet: one local rebuild spent 40 minutes inside a single
+# arrow.cc object. A cache configured after the work it should have saved
+# saves nothing.
 RUN mkdir -p /etc/nix && \
     echo "sandbox = false" >> /etc/nix/nix.conf && \
-    echo "nix-path = nixpkgs=https://github.com/rstats-on-nix/nixpkgs/archive/2026-09-28.tar.gz" >> /etc/nix/nix.conf
+    echo "nix-path = nixpkgs=https://github.com/rstats-on-nix/nixpkgs/archive/2026-09-28.tar.gz" >> /etc/nix/nix.conf && \
+    echo "substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org" >> /etc/nix/nix.conf && \
+    echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=" >> /etc/nix/nix.conf
 
 ENV PATH="${PATH}:/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin" \
     BASH_ENV=/nix/var/nix/profiles/default/etc/profile.d/nix.sh \
@@ -89,12 +97,6 @@ RUN nix-build /root/nix/r-plotting.nix -o /nix/profiles/r-plotting && \
 COPY nix/r-shiny.nix /root/nix/r-shiny.nix
 RUN nix-build /root/nix/r-shiny.nix -o /nix/profiles/r-shiny && \
     nix-collect-garbage -d
-
-# ── Layer 9a: binary cache for R packages (rstats-on-nix Cachix) ────────────
-# Without it every new R package would compile from source (very slow).
-# Placed before the R layers so it only invalidates them, not layers 1-9.
-RUN echo "substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org" >> /etc/nix/nix.conf && \
-    echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=" >> /etc/nix/nix.conf
 
 # ── Layer 9b: API packages (plumber2, models, Postgres) ─────────────────────
 # r-api.nix is built against nix/pkgs-api.nix (2025-12-02 pin) and is NOT part
