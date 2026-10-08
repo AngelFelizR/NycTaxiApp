@@ -86,7 +86,128 @@ the mock.
 - `pa11y` and the mobile checklist stay manual (§10 says so); where to run
   them goes in the runbook.
 
-### 3. Phase 8 — load testing and hardening — pending
+### 3. Phase 8 — load testing and hardening — SUPERSEDED (proposal below)
+
+**Not executed.** Section 8 assumed `shinyloadtest` generates the load; in
+1.2.1 it only *translates* the output of **`shinycannon`**, which is not in
+nixpkgs (`builtins.hasAttr "shinycannon"` → false), ships as a 9 MB jar behind
+a `exec java -jar "$0"` wrapper, and needs a **recording** that
+`record_session()` produces by blocking in `httpuv::service(Inf)` while a
+human drives a browser. Automating that means driving a browser ourselves.
+
+The other three numbers section 8 asks for do not need it — p95 of
+`/sensitivity` is plain HTTP, memory is `docker stats`, the median day is SQL
+— but the proposal below replaces the whole approach instead.
+
+---
+
+## PROPOSAL — Cypress as the UI, E2E and load tool (**questions open**)
+
+Asked for 2026-10-08: *use Cypress for the Shiny app E2E and for measuring
+resources per user and reliability under concurrent users with different
+decision strategies; whatever Cypress can do, Cypress does, and the old
+scripts and dependencies are removed.* Nothing has been executed — this
+section is the implication analysis and the questions to answer first.
+
+### Feasibility, measured
+
+- `nodejs`, `cypress` **and** `playwright` all exist in `nix/pkgs.nix`
+  (`builtins.hasAttr` → true). The dev container has **no node and no npm**
+  today.
+- The migration target is concrete: `app/tests/testthat/test-shinytest2.R`,
+  **541 lines and 14 `test_that` blocks** (Setup validation, hints, the 429
+  message, the custom seed, the resume modal, Trips, accept moves the clock,
+  arrow keys, the `?` dialog, finish → Results, KPIs, feedback, share links,
+  and `X-Client-IP`).
+
+### What Cypress gains
+
+- **`cy.intercept`**: the 429-message test and the `X-Client-IP` header test
+  become network assertions instead of browser-CDP tricks.
+- **Video and screenshots** → the section 9 demo (60–90 s) is a by-product.
+- Retries, time-travel debugging, reporters, `cy.task` (Node side, so a spec
+  can read Redis or Postgres directly to assert server state).
+- **Lighthouse** → the `pa11y` run that section 10 keeps manual would stop
+  being manual.
+
+### What is lost or gets harder
+
+- **`shinytest2` understands Shiny.** `wait_for_idle()` and reactive-aware
+  waits exist because a Shiny page updates itself; Cypress only sees a DOM, so
+  every assertion against server output becomes an explicit wait or poll.
+  Shiny's updates arrive over a WebSocket, which Cypress cannot intercept, so
+  there is no clean "wait for the server" primitive — this is the main flake
+  risk.
+- `set_inputs()`-style input setting becomes `type()`/`click()` sequences with
+  their own timing.
+- **Concurrency measurement does not come from Cypress.** N instances means N
+  Chromiums: on a dev box the number that dominates is the *driver's*, not the
+  app's. "Resources per user" has to be read from the server side (the Shiny
+  process's CPU/RSS, and the container's) while the sessions run.
+- The 14 scenarios have to be re-proven one by one; until each one lands there
+  are two answers to the same question.
+
+### What does NOT move (Cypress cannot do it)
+
+About 1 500 assertions stay in R, because they are not browser tests:
+`api` (723: handlers, DB, contract conformance, coverage), `share` (176),
+`integration` (78), and the app's own unit tests — strings, state,
+`api_client` against a **mocked** httr2, privacy, session isolation, the
+shared config and the accessibility checks. "Whatever Cypress can do" stops at
+the edge of the DOM.
+
+### Cost and risk, stated plainly
+
+- Rewriting 14 scenarios, plus the two load scenarios (accept-everything vs
+  model-only), is the bulk of the work.
+- Adding node/Cypress to the **dev container** means a new Nix layer — and
+  changing an early layer of `Dockerfile` costs a full rebuild of everything
+  after it (**hours**, as the ADR-0008 work measured). Putting it in a shell
+  that is not baked (the `test-tools.nix` pattern) avoids that at the price of
+  downloading it on first use.
+- CI needs the Cypress binary cached or it downloads ~200 MB per run.
+- `shinytest2`, `chromote`, `chromium` and `shinyloadtest` all become dead
+  weight once the migration lands; `app/dev/mock_api.R` does **not** (Cypress
+  still needs an API to talk to).
+
+### Questions before starting
+
+1. **What do we measure as "resources per user"?** Server-side (the Shiny
+   process/container CPU and RSS sampled while N sessions run) is the only
+   number that means anything for `max-total-instances`; Cypress's own
+   timings measure the browser driving it. Which do you want?
+2. **How do we run N concurrent users?** N Cypress instances against **one**
+   app process (measures what one container can take, which is what
+   ShinyProxy scales) vs N app containers behind a router (measures the
+   deployment). The two answer different questions.
+3. **Are the two decision strategies one parameterised spec or two?**
+   "accept everything" vs "accept only what the model predicts" reads like a
+   tag/parameter the load run sets; confirm, or do you want two separate
+   spec files that also assert the *outcome* differs?
+4. **Scope of the replacement:** only `test-shinytest2.R` (the real E2E), or
+   also try to pull `test-privacy` and `test-accessibility` under Cypress?
+   The first two are source/`testthat` assertions and cannot move; but the
+   `pa11y` part of §12 could go to Lighthouse and remove a manual step.
+5. **Do we really delete `shinytest2`, `chromote`, `chromium` *and*
+   `shinyloadtest`?** The instruction says no traces of the old strategy —
+   confirm all four go (and `shinycannon` never arrives).
+6. **Where does Cypress live: baked into the dev image, or a non-baked shell?**
+   Baking costs hours on the next `nix/` change; a shell costs a download on
+   first use. Same trade-off as `nix/test-tools.nix` today.
+7. **CI:** cache the Cypress binary with the GitHub Actions cache, or run the
+   specs in the official Cypress Docker image (which would break the "tests
+   run inside the dev image" rule we just established)?
+8. **Flake tolerance:** accepting explicit waits for Shiny's reactivity is the
+   price. Do we accept that, or do we keep `shinytest2` for the state-heavy
+   assertions and use Cypress only for the network/video/load parts?
+9. **Order:** migrate first, then measure; or write the two load scenarios
+   against the old test and delete the old one only after both pass?
+10. **What "reliable" means for the load test:** after N sessions, assert
+    every session's own outcome (no cross-talk, §6.1.5) and that no decision
+    landed on the wrong day? I can write that as explicit assertions — confirm
+    what would convince you.
+
+
 
 - Confirm `shinyloadtest` exists in the pin; add it to a dev-only shell.
 - Profiles 1 / 10 / 20 concurrent users against the real stack; report
