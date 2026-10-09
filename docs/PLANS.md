@@ -129,8 +129,19 @@ and `client-ip.cy.js`. `app/dev/mock_api.R`,
 `./dev/e2e.sh` starts the API, share/, the client-IP proxy and the app.
 R-slim (the R half of the same push) is ADR-0011 and is done.
 
-**Still to do:** pa11y via Lighthouse (manual, §10 keeps it out of CI). The
-deletion commit ADR-0012 called for --
+**pa11y + the mobile checklist + the WebAIM sign-off: done** (2026-10-09).
+pa11y runs from the versioned `app/dev/pa11y.json` (manual, §10 keeps it
+out of CI) and reports **0 errors / 26 warnings**; the runbook documents
+the command, the two load-bearing config knobs and the last run's numbers.
+The three checks found two real defects, both fixed: anchors at 4.24:1
+(the palette gained `link`/`link_hover` tokens) and **`www/styles.css`
+never being loaded** — its `<link>` was lost in the phase-5 migration, so
+reduced-motion, the 44px targets, the touch-hidden hints and the warning
+red were all dead code until the mobile checklist noticed the footer. The
+checklist itself plays Setup → Trips at 390px and measures every tap
+target ≥44px; WebAIM's own checker signed the six key colour pairs (all
+AA pass, agreeing with `test-accessibility.R` to two decimals).
+The deletion commit ADR-0012 called for --
 `shinytest2`, `chromium` and `nix/test-tools.nix` out of `nix/` -- is done:
 the image was rebuilt and pushed with the new `nix-hash`, in 10.5 minutes
 with nothing compiled, thanks to the binary cache.

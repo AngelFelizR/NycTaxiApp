@@ -16,6 +16,17 @@ taxi_palette <- function(mode = c("light", "dark")) {
     bg         = if (light) "#ffffff" else "#16171d",
     fg         = if (light) "#1f2328" else "#e6e6ea",
     primary    = brand_colour(if (light) "primary" else "primary_dark"),
+    # Links are NOT the primary (section 12's 4.5:1 decided this, pa11y
+    # found it): the brand primary #6d5dfc clears AA on #ffffff (4.54:1) but
+    # the body sits on --taxi-surface #f6f7f9, where it reaches only 4.24:1
+    # -- under AA for every anchor on a card, in the footer and in the intro.
+    # No single value can serve both themes either, which is why this is a
+    # per-mode token: the light one is the primary darkened until it clears
+    # 4.5:1 on the surface (4.73:1), the dark one is the primary_dark, which
+    # already clears it there (5.01:1). Bootstrap paints <a> from
+    # $link-color, so theme_taxi() feeds it from here.
+    link       = if (light) "#6657ec" else "#8b7dff",
+    link_hover = if (light) "#5649c8" else "#9c90ff",
     surface    = if (light) "#f6f7f9" else "#1e2028",
     border     = if (light) "#e3e6ea" else "#2c2f3a",
     success_bg = if (light) "#d1f4dd" else "#1e4d2b",
@@ -57,6 +68,11 @@ theme_taxi <- function(mode = c("light", "dark")) {
     bg = p$bg,
     fg = p$fg,
     primary = p$primary,
+    # The anchors, from the palette: see the `link` token above. Left to
+    # Bootstrap, $link-color would be $primary and every link on the surface
+    # would sit at 4.24:1.
+    "link-color" = p$link,
+    "link-hover-color" = p$link_hover,
     base_font = font_google("Inter", local = TRUE),
     code_font = font_google("JetBrains Mono", local = TRUE),
     "border-radius" = "0.5rem",
@@ -64,9 +80,10 @@ theme_taxi <- function(mode = c("light", "dark")) {
   ) |>
     bs_add_rules(c(
       # Palette tokens (6.4). The primary itself comes from shared/brand.yaml;
-      # its contrast over #ffffff is 6.8:1, so it passes AA. The rest of this
-      # block is app-only (share/ has no light/dark theme). Dark mode follows
-      # data-bs-theme, which input_dark_mode() toggles on the page.
+      # the link token next to it is computed for AA on the surface (see
+      # taxi_palette). The rest of this block is app-only (share/ has no
+      # light/dark theme). Dark mode follows data-bs-theme, which
+      # input_dark_mode() toggles on the page.
       ":root {",
       taxi_palette_rules(taxi_palette("light")),
       "}",

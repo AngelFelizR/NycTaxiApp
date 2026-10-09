@@ -384,24 +384,88 @@ Already checked on every run, in `app/tests/testthat/test-accessibility.R`:
 - Both `girafe()` charts carry `role="img"` and an `aria-label` that is a
   sentence, not the chart's title.
 - **Every text pair in both themes clears WCAG AA (4.5:1)**, computed from
-  `taxi_palette()` -- including `--taxi-muted-fg`, which exists precisely
+  `taxi_palette()` — including `--taxi-muted-fg`, which exists precisely
   because the old single grey reached only 4.44:1 on the light surface and
-  3.41:1 on the dark one.
+  3.41:1 on the dark one — and the `link`/`link_hover` tokens, which pa11y
+  caught at 4.24:1 when anchors were painted with the brand primary.
 - The pending clock prints its hours as text, so the green/amber/red bar is
   never the only signal (§3.11).
 
-Still manual, and worth doing before a release:
+### How to run the three checks (phase 8, last run 2026-10-09)
+
+**1. pa11y** — never in CI (§10: no models there). Against a running stack
+(`dev/e2e.sh` in hold mode, or the app with the API up), from `app/`:
 
 ```sh
-# 1. pa11y against a running stack (never in CI, section 10).
-npx @pa11y/pa11y http://127.0.0.1:3838/
-# 2. Contrast sign-off: paste the palette values into WebAIM's contrast
-#    checker and confirm -- the ratios the test enforces are the ones to
-#    expect. https://webaim.org/resources/contrastchecker/
-# 3. Mobile checklist (390px): Setup -> Trips -> Results, then /share, then
-#    the LinkedIn in-app browser. The keyboard hints are hidden on touch by
-#    design; check the 44px tap targets still are where they should be.
+npx -y pa11y@10 http://127.0.0.1:3839/ --config dev/pa11y.json -r json
 ```
+
+The config is versioned in `app/dev/pa11y.json`. Two knobs in it are
+load-bearing, not preferences:
+
+- `levelCapWhenNeedsReview: "notice"` — axe's `incomplete` array ("the
+  background could not be determined") is reported by pa11y as errors by
+  default. Those are *review* items, and the review is this checklist's
+  job. **Last run: 0 errors, 26 warnings**, all of them either Shiny
+  landmarks (`region`, `landmark-one-main` — a single-page app has no
+  `<main>` per panel) or HTMLCS notices on transparent overlays. The eight
+  needs-review contrast items were read by hand: five are Leaflet's own
+  controls (zoom/attribution — excluded via `hideElements` now), three
+  measured `#35393e` on `#f6f7f9` = 11:1.
+- The `chromeLaunchConfig` path points at the Chrome that puppeteer
+  installed inside the dev image; `--no-sandbox` because the image runs as
+  root. On a host with your own Chrome, point `executablePath` at it.
+
+**2. WebAIM contrast sign-off** (§12) — the tool, not just our formula:
+
+```text
+https://webaim.org/resources/contrastchecker/?fcolor=6657ec&bcolor=f6f7f9&api
+```
+
+Swap `fcolor`/`bcolor` for each pair (`&api` returns JSON). **Signed off
+2026-10-09**, all AA pass: light link `#6657ec`/surface 4.73 · light
+link/bg 5.07 · muted `#5b6678`/surface 5.41 · body `#1f2328`/surface
+14.70 · dark link `#8b7dff`/dark-surface 5.01 · dark link/dark-bg 5.51.
+Our test and WebAIM agree to two decimals — that agreement is the point
+of the check.
+
+**3. Mobile checklist (390px)** — headless or a device:
+
+```text
+viewport 390x844, hasTouch, (pointer: coarse); then Setup → validate →
+Start The Day → resume modal → Trips, accept once, and read:
+```
+
+- No horizontal overflow on Setup, Trips **and** `/privacy.html`.
+- `.kbd-footer` computes to `display: none` (§6.5 hides hints on touch).
+- Every tap target ≥ 44px: accept/reject (measured 160×78), validate
+  (258×47), the three checkbox *labels* (300×44 — the label is the target,
+  not the 19×19 input), and the navbar toggle (44×44 since `styles.css`
+  gained it under `@media (pointer: coarse)`).
+- The dark-mode toggle sits **outside** `<ul role="tablist">` (moved by
+  `www/js/a11y.js`; without JS it stays inside and pa11y reports one
+  `aria-required-children` instead of a broken control).
+
+Still genuinely manual: `/share` on a real phone and the LinkedIn in-app
+browser — no headless tool replicates their webviews.
+
+### What these checks caught (2026-10-09)
+
+Worth knowing because each looks like a test problem and was a product
+problem:
+
+- **`www/styles.css` was never loaded.** The `<link>` was lost in the
+  phase-5 migration from `page_fluid` to `page_navbar`; the sheet has been
+  served (200) and ignored since. Every rule in it — reduced-motion, the
+  44px tap targets, the hidden keyboard hints on touch, the warning red —
+  was dead code. The mobile checklist (a visible `kbd-footer` under
+  `pointer: coarse`) is what found it.
+- **Anchor contrast 4.24:1**: links inherited `$link-color = $primary`,
+  which clears AA on `bg` but not on the `surface` most of them sit on.
+- **pa11y's first run: 30 errors** (HTMLCS on selectize's hidden selects,
+  the toggle inside the tablist, empty heading, nameless icon button) —
+  all four fixed in the product, not silenced in config; see the CHANGELOG
+  entries for each.
 
 ---
 

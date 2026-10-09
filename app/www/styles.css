@@ -74,6 +74,18 @@
 }
 @media (pointer: coarse) {
   .trip-actions .btn { min-height: 44px; font-size: 1.05rem; }
+
+  /* Section 10's mobile checklist: every tap target at 44px. bslib's navbar
+     button ships as .navbar-toggle (the BS3 spelling) at 40px tall, and a
+     checkbox input is 19x19 -- but the whole <label> toggles it, so the
+     target is the label: give it the height. Desktop is untouched. */
+  .navbar-toggle { min-height: 44px; min-width: 44px; }
+  .checkbox > label,
+  .form-check > label {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
 }
 
 /* ---- Keyboard hint footer (6.5): hidden entirely on touch devices ---- */

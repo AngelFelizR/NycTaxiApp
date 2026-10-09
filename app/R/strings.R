@@ -29,6 +29,7 @@ label_start_datetime <- "Initial Date-time"
 label_start_zone <- "Initial Location"
 label_seed_section <- "Advanced"
 label_seed <- "Random seed"
+label_seed_info_btn <- "About the random seed"
 seed_help <- paste(
   "Changing the seed changes the simulation results, and your result will be",
   "marked as unofficial."

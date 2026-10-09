@@ -39,18 +39,47 @@ ui <- page_navbar(
   theme = theme_taxi(),
   title = app_title,
   fillable = FALSE,
+  # 12: the document's language. Without it every screen reader reads the
+  # English UI with the wrong voice, and pa11y reports it as an error on
+  # <html> (H57.2 / html-has-lang). bslib only writes the attribute when it
+  # is given, so it has to be said here.
+  lang = "en",
   header = tagList(
     shinyjs::useShinyjs(),   # mod_confirm_modal copies the resume code with runjs()
+    # The app's own stylesheet (www/styles.css): the reduced-motion rule of
+    # section 12, the 44px tap targets and the keyboard-hint footer hidden on
+    # touch (6.5), the warning text, the preselection outline. The <link> was
+    # lost in the phase-5 migration from page_fluid to page_navbar and the
+    # sheet has been served but never loaded ever since -- the mobile
+    # checklist (a footer visible under pointer:coarse) is what caught it.
+    # tags$head is hoisted into <head> by Shiny's renderer wherever the tag
+    # sits in the UI, and after bootstrap.min.css so its rules win.
+    tags$head(tags$link(rel = "stylesheet", href = "styles.css")),
     # Keyboard shortcuts for Trips (6.5). Loaded once here so mod_trips only
     # has to send its ids, and www/js is served as a normal Shiny resource.
     tags$script(src = "js/shortcuts.js"),
+    # Section 12 glue: aria-hidden on the selects selectize hides (pa11y).
+    tags$script(src = "js/a11y.js"),
     mod_header_ui("header")
   ),
   nav_panel(nav_setup,   value = "setup",   mod_setup_ui("setup")),
   nav_panel(nav_trips,   value = "trips",   mod_trips_ui("trips")),
   nav_panel(nav_results, value = "results", mod_results_ui("results")),
   nav_spacer(),
-  nav_item(input_dark_mode(id = "modo"))
+  # The dark-mode toggle is not a tab, but bslib's nav_item puts it inside
+  # the same <ul role="tablist"> as the panels. These two roles are the
+  # server-side half of the fix (www/js/a11y.js does the other half): they
+  # remove the li's own semantics so axe does not report "listitem" for an
+  # <li> whose <ul> lost its list role to tablist, and F92 on the custom
+  # element. What they cannot remove is the <button> inside the component's
+  # shadow root -- a tablist may only hold tabs (4.1.2) -- so a11y.js moves
+  # the whole toggle out of the tablist to be its sibling. Without JS the
+  # page still works and still reports one aria-required-children instead of
+  # two violations.
+  nav_item(
+    tagAppendAttributes(input_dark_mode(id = "modo"), role = "presentation"),
+    role = "presentation"
+  )
 ,
   # 9.1: the privacy notice has to be reachable from Setup, the footer and the
   # email form. page_navbar's `footer` renders under every panel, so this one

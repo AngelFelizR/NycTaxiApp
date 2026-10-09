@@ -39,8 +39,14 @@ mod_setup_ui <- function(id) {
     leafletOutput(ns("map_start"), height = 240),
 
     conditionalPanel("output.is_optimal", ns = ns,
+      # Not an <h4>: this is a status line that Shiny fills in late, and a
+      # heading whose content has not arrived yet is what pa11y reports as
+      # H42.2 ("heading tag found with no content") on every scan. role=
+      # "status" is what it actually is -- a live announcement -- and .h4
+      # keeps the same Bootstrap typography the <h4> had.
       div(class = "text-center text-success my-2",
-        h4(icon("check"), " ", textOutput(ns("perfect_msg"), inline = TRUE)))),
+        div(class = "h4", role = "status",
+            icon("check"), " ", textOutput(ns("perfect_msg"), inline = TRUE)))),
 
     conditionalPanel("output.preparing_on", ns = ns,
       div(class = "text-center text-muted my-2",
@@ -52,8 +58,13 @@ mod_setup_ui <- function(id) {
         div(class = "d-flex align-items-end gap-2",
           div(class = "flex-grow-1",
             textInput(ns("seed"), label_seed, value = "")),
-          actionButton(ns("seed_info"), "", icon = icon("circle-question"),
-                       class = "btn-outline-secondary mb-1")
+          # Icon-only button: without text, title or aria-label it has no
+          # accessible name (pa11y H91.Button.Name). The title doubles as
+          # the hover tooltip, which the "?" affordance never had.
+          actionButton(ns("seed_info"), NULL,
+                       icon = icon("circle-question"),
+                       class = "btn-outline-secondary mb-1",
+                       title = label_seed_info_btn)
         ))
     ),
 

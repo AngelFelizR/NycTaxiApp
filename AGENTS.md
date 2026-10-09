@@ -59,9 +59,10 @@ primer pase — ver el ADR).
 **Pendiente — solo cosas externas:** credenciales SMTP reales + registros
 SPF/DKIM/DMARC, secretos de GitHub para desplegar en la VM, la regla de caché
 y los DNS de Cloudflare, UptimeRobot, y los dos huecos del release de datos
-(ver "Bloqueos del primer despliegue"). De la fase 8 queda solo `pa11y`
-(local, manual); el load test está hecho (ver su sección en los comandos y
-el hallazgo de capacidad en el runbook). Después, fase 9.
+(ver "Bloqueos del primer despliegue"). **Fase 8 cerrada:** load test (con su
+hallazgo de capacidad en el runbook) y los tres checks de accesibilidad
+(pa11y, checklist móvil 390px, sign-off WebAIM — procedimiento y últimos
+números en el runbook, sección "Manual checks"). Queda solo la fase 9.
 
 ## Reglas del monorepo (§1.2, no negociables)
 - Un solo `.env` en la raíz · un solo `docker-compose.yml` en la raíz (más
@@ -282,6 +283,16 @@ el hallazgo de capacidad en el runbook). Después, fase 9.
   informe queda en `app/dev/load/<stamp>/` (gitignored). El techo de usuarios
   y los números mididos viven en README y en el hallazgo de capacidad del
   runbook (allí se decide `max-total-instances`).
+- **pa11y (fase 8, cwd = `app/`)**: `npx -y pa11y@10 http://127.0.0.1:3839/
+  --config dev/pa11y.json -r json` contra un stack arriba (§10 lo mantiene
+  fuera de CI: es manual y local). La config versionada lleva dos perillas
+  que no son preferencias — `levelCapWhenNeedsReview` (los "no pude
+  determinar el fondo" de axe son notas de revisión, no fallos) y
+  `hideElements` para los controles de Leaflet. El procedimiento, los
+  últimos números y el sign-off de WebAIM viven en el runbook, sección
+  "Manual checks". Ojo con el listener de `www/js/a11y.js`: Shiny dispara
+  `shiny:sessioninitialized` con jQuery `.trigger()`, que **no** llega a
+  `addEventListener` nativo — ahí va `$(document).on(...)`.
 - Tests de la API (contenedor, cwd = `api/`): `nix-shell default.dev.nix` y
   `Rscript tests/testthat.R`. **Pasa con y sin modelos y sin datos**: con
   `TAXI_MODELS_DIR=/nonexistent TAXI_DATA_DIR=/nonexistent` solo se salta

@@ -48,7 +48,13 @@ test_that("every text pair meets WCAG AA in both themes", {
     c("fg", "surface"),       # body copy on a card or the sidebar
     c("success_fg", "success_bg"),
     c("danger_fg", "danger_bg"),
-    c("primary", "bg")        # links and the preselection outline
+    c("primary", "bg"),       # the preselection outline (a graphic, 3:1 -- but it clears 4.5 anyway)
+    c("link", "bg"),          # anchors on the page
+    c("link", "surface"),     # anchors on a card, the footer, the intro: the
+                              # pair pa11y caught at 4.24:1 when links were
+                              # painted with the primary
+    c("link_hover", "bg"),
+    c("link_hover", "surface")
   )
   for (mode in c("light", "dark")) {
     p <- taxi_palette(mode)

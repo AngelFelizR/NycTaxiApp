@@ -546,6 +546,19 @@ goes where.
   `trap 'cleanup; exit 143' TERM INT` makes a TERM from the harness run the
   same cleanup — otherwise the API, share/, the proxy and the app were
   orphaned and the next profile found the ports occupied.
+- **The phase-8 accessibility pass: `app/www/js/a11y.js` and
+  `app/dev/pa11y.json`.** Two things the R side cannot express. The script
+  does both on `shiny:sessioninitialized` — through **jQuery**, because
+  Shiny fires that event with `$(document).trigger()` and a native
+  `addEventListener` never sees it (which is how the first version of the
+  file silently did nothing): it marks selectize's hidden `<select>`
+  `aria-hidden` and moves the dark-mode toggle out of the tablist. The
+  config versioned next to the harness carries the two load-bearing knobs —
+  `levelCapWhenNeedsReview: "notice"` so axe's own "I could not determine
+  the background" items are review notes rather than failures, and
+  `hideElements` for Leaflet's controls, whose contrast no tool can judge
+  over map tiles. Both are documented in the runbook with the last run's
+  numbers (0 errors / 26 warnings) and the WebAIM sign-off.
 
 ### Changed
 - **§10 puts load testing "in CI, no bloquea un merge"; it does not run in
@@ -1003,6 +1016,50 @@ goes where.
 
 ### Fixed
 
+- **`www/styles.css` was never loaded.** The `<link>` existed under the
+  original `page_fluid` UI and was lost in the phase-5 migration to
+  `page_navbar`; the sheet has answered 200 since then while nothing in the
+  document referenced it. Every rule in it was dead code: `prefers-reduced-
+  motion`, the 44px tap targets, the keyboard-hint footer hidden on touch,
+  the warning red, the preselection outline. Restored in `app.R`'s header
+  (`tags$head` is hoisted into `<head>` by Shiny's renderer, after
+  bootstrap so it wins). Found by the phase-8 mobile checklist: the footer
+  should have been invisible under `pointer: coarse` and was not.
+  **Lesson:** a stylesheet in `www/` is served, not loaded — a test that
+  reads the file (as `test-accessibility.R` does) proves the rules exist,
+  never that the browser sees them; one computed-style probe on the running
+  page closes that gap.
+- **pa11y's first run reported 30 errors; the current run reports 0.** Every
+  one was fixed in the product, none silenced in config: (1) anchors were
+  painted with `$link-color = $primary`, which clears AA on `bg` (4.54:1)
+  but not on the `surface` where the intro, footer and card links sit
+  (4.24:1) — the palette gained `link`/`link_hover` tokens fed to
+  Bootstrap's `$link-color`; (2) HTMLCS walks the `<select>` that selectize
+  hides and reported it unnamed eight times, though the visible control is
+  the `-selectized` input the label points at — `www/js/a11y.js` marks it
+  `aria-hidden`, which is what `display: none` already means; (3) the
+  dark-mode toggle sat inside `<ul role="tablist">`, where its shadow-root
+  `<button>` is a child a tablist may not hold (4.1.2) — `a11y.js` moves it
+  to be the `<ul>`'s sibling after `shiny:sessioninitialized`; (4) the
+  "perfect conditions" line was an `<h4>` whose text arrives late, which
+  HTMLCS reads as an empty heading — it is a `role="status"` div now, which
+  is what it always was; (5) the icon-only seed-help button had no
+  accessible name — it gained a `title`.
+  **Lesson:** pa11y's error list is a to-do list of *product* defects, not
+  of test tuning — with one exception (axe items it explicitly marks
+  "needs review"), every entry had a real fix, and the config only decides
+  which of axe's own doubts are reported as errors.
+- **The keyboard-hint footer was visible on touch devices** — §6.5 hides it
+  under `pointer: coarse`, and after the `styles.css` restoration the
+  mobile checklist confirms `display: none`. The same checklist measured
+  every tap target at ≥44px on a 390px viewport: accept/reject 160×78,
+  validate 258×47, the checkbox *labels* 300×44 (the label is the target,
+  not the 19×19 input), and the navbar toggle 44×44 (it needed
+  `min-height` under `pointer: coarse`; bslib ships it as `.navbar-toggle`,
+  the BS3 spelling).
+  **Lesson:** measure the target a finger actually hits — the label that
+  toggles a checkbox, not the input inside it — or the checklist fails
+  things that are already fine and misses the one that is not.
 - **Under concurrent users the UI froze mid-day: a decision was stored and
   the screen never moved again.** The two halves are in "Added" and
   "Changed": the 15 s client timeout died against a queue that measured 25-32

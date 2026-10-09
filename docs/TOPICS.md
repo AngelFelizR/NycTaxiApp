@@ -64,6 +64,8 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 - [app/dev/load_sessions.js](../app/dev/load_sessions.js) · [load_sessions.selftest.sh](../app/dev/load_sessions.selftest.sh) — cross-session analyzer and its smoke
 - [app/dev/median_day.R](../app/dev/median_day.R) — the median day from SQL
 - [app/cypress/redis_client.js](../app/cypress/redis_client.js) — RESP by hand (Cypress tasks + harness FLUSHDB)
+- [app/dev/pa11y.json](../app/dev/pa11y.json) · [app/www/js/a11y.js](../app/www/js/a11y.js) — pa11y config and the client-side a11y glue — §12
+- [app/www/styles.css](../app/www/styles.css) — reduced-motion, 44px targets, touch-hidden hints — §12, §6.5
 - [api/dev/coverage.R](../api/dev/coverage.R) — §10 coverage, both thresholds
 - [api/dev/smoke.sh](../api/dev/smoke.sh) · [api/dev/e2e_experiments.sh](../api/dev/e2e_experiments.sh) — HTTP smoke and experiment E2E
 - ADRs [0006](decisions/0006-response-schema-conformance.md), [0007](decisions/0007-both-services-are-packages.md), [0012](decisions/0012-cypress-is-the-e2e-and-load-tool.md), [0014](decisions/0014-the-ui-tests-the-real-api.md)
@@ -124,7 +126,7 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 - [infra/nginx/snippets/](../infra/nginx/snippets/) · [infra/nginx/html/](../infra/nginx/html/) — security headers, capacity page
 - [infra/shinyproxy/application.yml](../infra/shinyproxy/application.yml) — session containers, §8.3
 - [infra/scripts/backup.sh](../infra/scripts/backup.sh) · [restore_test.sh](../infra/scripts/restore_test.sh) · [disk_check.sh](../infra/scripts/disk_check.sh) · [health_check.sh](../infra/scripts/health_check.sh) — data safety and alerts
-- [docs/operations/runbook.md](operations/runbook.md) — incidents (incl. §8 capacity ceiling)
+- [docs/operations/runbook.md](operations/runbook.md) — incidents (incl. §8 capacity ceiling), manual checks (pa11y / WebAIM / mobile)
 - [docs/operations/first-deploy.md](operations/first-deploy.md) — everything outside the repo
 - [README.md](../README.md) — the load-test numbers (phase 8)
 - ADR [0004](decisions/0004-container-hardening.md)

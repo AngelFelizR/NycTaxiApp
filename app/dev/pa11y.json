@@ -1,0 +1,16 @@
+{
+  "standard": "WCAG2AA",
+  "runners": ["htmlcs", "axe"],
+  "includeWarnings": true,
+  "timeout": 60000,
+  "wait": 6000,
+
+  "chromeLaunchConfig": {
+    "executablePath": "/root/.cache/puppeteer/chrome/linux-155.0.8059.39/chrome-linux64/chrome",
+    "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+  },
+
+  "levelCapWhenNeedsReview": "notice",
+
+  "hideElements": ".leaflet-control-attribution, .leaflet-control-zoom"
+}
