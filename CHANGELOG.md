@@ -501,8 +501,79 @@ goes where.
   this file now ends with a `**Lesson:**` line — the portable lesson in one
   sentence, so the next reader extracts it with a `grep` instead of a close
   reading. Past entries are not rewritten.
+- **The load harness of phase 8: `app/dev/load_test.sh`.** N concurrent
+  browser sessions against one app, each with its own client IP (its own
+  `e2e-proxy.js` instance, so 5.4's per-IP limiter counts each visitor as
+  themselves) and its own strategy, alternating `accept-all` and
+  `model-only`. It reports the three numbers §8 asks for: the **server's**
+  peak RSS and CPU (sampled from the process trees, not from N Chromiums —
+  ADR-0012), the p95 of `/sensitivity` **from the API's own section 11 log**
+  (the latency it measured under that load, not a probe's), and the median
+  day from SQL (`app/dev/median_day.R`). Its companion pieces:
+  `app/cypress/load/load.cy.js` (one session: plays its own day, one what-if
+  zone pick so N sessions exercise `/sensitivity` too, asserts the day is its
+  own — 6.1.5 — and that its Results counts are its own clicks),
+  `app/dev/load_sessions.js` (the cross-session analyzer: N records, N
+  distinct experiment ids, the strategy each one claims — with
+  `dev/load_sessions.selftest.sh` so a bug in the assertions costs two
+  seconds, not an hour) and `app/cypress/redis_client.js` (RESP by hand over
+  a socket, now shared by the Cypress tasks and the harness's one FLUSHDB).
+  The `load_record` task in `cypress.config.cjs` is how a session writes its
+  JSONL line. Not in CI — the §10 divergence is annotated below.
+- **The UI recovers an answer that never arrived.** A `POST /decisions` or
+  `/finish` that exceeds the client's timeout is *still stored* by the
+  single-threaded API, and `in_progress` days had no `/state` poll to notice:
+  the visitor kept seeing an offer that was already decided, and a timed-out
+  `/finish` could leave the day on an empty Trips screen. Now
+  `mod_trip_card` and `mod_trips` arm `estado$resync` when a *settled* task
+  comes back empty, `app.R` polls `GET /state` once a second while it is set
+  (the flag clears on the first answer), and `finish_can_invoke()`
+  (`app/R/utils.R`) keeps the retry honest: bounded attempts, never while a
+  resync is in flight — a second `/finish` would only find 409 — and never
+  while one is running. Unit tests for all three (`test-utils.R`,
+  `test-state.R`).
+- `SETUP_TIMEOUT_S` is read from the environment in
+  `api/R/endpoint_experiments.R`. The default is §4.6's 120 s, so nothing
+  changes for anyone who does not set it; a load run raises it (the harness
+  exports 600 s) because ten trajectory forks on eight cores pass 120 s
+  easily — at profile 10 the guard was retiring days that were still being
+  computed.
+- `app/dev/e2e.sh` grew the knobs a harness needs and the teardown one
+  demands: `E2E_HOLD=1` keeps the stack up instead of running one spec,
+  `E2E_LOG_DIR` lets the caller own `api.log` (the p95 comes from it), the
+  wait budgets are `API_WAIT_S`/`SHARE_WAIT_S`/`APP_WAIT_S`, every child
+  starts under `setsid(1)` and `kill_group` kills its process group, and
+  `trap 'cleanup; exit 143' TERM INT` makes a TERM from the harness run the
+  same cleanup — otherwise the API, share/, the proxy and the app were
+  orphaned and the next profile found the ports occupied.
 
 ### Changed
+- **§10 puts load testing "in CI, no bloquea un merge"; it does not run in
+  CI.** CI has no models and no dataset (the release assets are not on the
+  runner), so a p95 of `/sensitivity` measured there would be a number about
+  whatever stands in for the service. The harness runs on the dev container
+  or the VM — where the assets are — and its numbers are the ones in the
+  README. Annotated here; the document is not edited.
+- **§8 and the phase 8 prompt ask for profiles 1, 10 and 20; 20 is not
+  run.** The measured ceiling is 10 (see "Fixed" below and the runbook): the
+  median day is already 71 min against the 12-min target, and the host's
+  MemAvailable bottoms at 1978 MB against §1.1's own "≥ 2 GB of headroom"
+  condition for even considering 12 instances. A profile 20 would measure how
+  worse than the ceiling is worse. Annotated here, not edited.
+- **The client's HTTP timeout is 45 s, not 15 s** (`api_request()` in
+  `app/R/api_client.R`). plumber2 serves one request at a time, so under the
+  capacity §1.1 contemplates the queue *is* the latency: measured at profile
+  10, `/decisions` up to 25 s and `/state` up to 32 s — the old 15 s cut off
+  answers the server was still computing, and the `/state` resync that
+  recovers a lost answer timed out the same way, leaving the screen dead with
+  the decision already stored. 45 s is 3× the worst round-trip observed in
+  the full run (nothing exceeded it); the task button's spinner covers the
+  wait, and a dead API still answers in bounded time.
+- **The load run's verdict on `max-total-instances` is "stay at 10".** §1099
+  allows 12 only with ≥ 2 GB of headroom *and* acceptable latency; neither
+  holds at 10. The memory floor measured here is pessimistic (this host also
+  runs the ten Chromiums production does not); the latency is not, and it
+  alone settles it.
 - **§7.1 describes three layers for the card and there are now two.** The
   master document puts a Redis cache in front of the render and the edge in
   front of that; the Redis layer is gone and only the edge remains. Annotated
@@ -932,6 +1003,43 @@ goes where.
 
 ### Fixed
 
+- **Under concurrent users the UI froze mid-day: a decision was stored and
+  the screen never moved again.** The two halves are in "Added" and
+  "Changed": the 15 s client timeout died against a queue that measured 25-32
+  s at profile 10, and `in_progress` had no `/state` poll, so the timed-out
+  POST left the visitor clicking an offer that no longer existed. With both
+  fixes the same profile finishes **10/10 sessions**, every one on its own
+  experiment id.
+  **Lesson:** a client timeout is a bet against the server's *worst* latency
+  under the load you claim to support — measure the queue, not the idle
+  service, and give the recovery path a bigger budget than the failure it
+  recovers from.
+- **The load harness's zone re-pick defeated itself at profile 10.** The
+  retry re-picked a zone every 10 s while `POST /sensitivity` took a median
+  of 11 s and a p95 of ~20-29 s under that load: every answer was invalidated
+  before it could draw, the plot never appeared, and the abandoned requests
+  piled up until other sessions' `/decisions` stopped moving their clocks
+  too. The interval is now 45 s (above the measured p95) with a cap of 8
+  picks, and all 10 sessions draw the boundary.
+  **Lesson:** a retry interval shorter than the retried call's own latency is
+  not resilience — it is a self-inflicted denial of service.
+- **`app/dev/e2e.sh` left orphaned R processes holding the ports between
+  load profiles.** Killing the `nix-shell` wrapper did not kill the R process
+  underneath (which had no `setsid`, so it was not in the wrapper's group),
+  and the next profile came up to "API already answering" with an empty
+  `api_pid` — or sampled a dead tree and reported `peak RSS 0`. Every child
+  now starts under `setsid(1)`, `kill_group` kills the process group, and a
+  TERM to the script runs the same cleanup via trap.
+  **Lesson:** a background service started from a script must be its own
+  process-group leader, or "stop it" stops being a complete sentence.
+- **`SETUP_TIMEOUT_S` was a hardcoded 120 s and the load run lost days to
+  it.** Ten trajectory forks on eight cores share the CPU, and the guard was
+  retiring rows that were still being computed — the day stayed in `setup`
+  and `/state` started answering 503 for work that would have finished. It
+  is an env var now, default 120 (§4.6 unchanged for everyone else), and the
+  harness raises it to 600.
+  **Lesson:** a timeout that is correct for one user is a correctness bug at
+  N — make the knob visible and let the load environment turn it.
 - **`app/dev/e2e.sh` computed the repository root one level too high**
   (`cd ../..` from `app/`, i.e. the *parent* of the repository). Only the
   paths that start the API and read `.env` used it, so the bug hid behind an
@@ -942,7 +1050,7 @@ goes where.
   from that run: `never answered` is a reason worth annotating, and the
   `127.0.0.1:8093` narinfo errors of an absent loopback cache (ADR-0013) are
   noise that must be filtered, or they are all an annotation shows.
-- `httr2::req_perform()` throws on 4xx/5xx by default, so `api_share_data()`
+- **`httr2::req_perform()` throws on 4xx/5xx by default, so `api_share_data()`**
   collapsed every real status into a caught error and the share page answered
   **503 for an unknown token** instead of 404. `api_request()` now sets
   `is_error = ~ FALSE` (single `req_error()` call -- it stores both hooks at

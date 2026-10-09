@@ -323,6 +323,54 @@ credentials means a database incident cannot take the card down with it.
 
 ---
 
+## Incident: the UI freezes mid-day under concurrent users
+
+**Symptom:** a visitor accepts a trip, the clock never moves, and the same
+offer stays on screen until they reload. Under the load run it looked like
+failed sessions: `POST /decisions` answered 200 (the decision was stored) but
+the browser had given up first, and nothing on screen changed again.
+
+**Diagnosis:** plumber2 serves **one request at a time**, so with several
+users the queue *is* the latency. Measured at profile 10 (the ceiling — see
+below): `/decisions` up to 25 s, `/state` up to 32 s, and **287 of 603**
+requests in one run crossed the 15 s client timeout the UI used to carry
+(`api_request()` in `app/R/api_client.R`). A timed-out POST is still stored
+server-side, the screen keeps the offer it already had, and `in_progress`
+days had no `/state` poll to notice — a dead end, not a slowness:
+
+```sh
+# On the dev box: durations from the section 11 log of a running load test.
+grep '"duration_ms"' "$LOAD_OUT/api.log" | grep -o '"duration_ms":[0-9]*' \
+  | cut -d: -f2 | sort -n | tail
+```
+
+**Fix:** the client timeout is **45 s** (3× the worst observed round-trip;
+nothing in the measured run exceeded it), and the recovery that makes the
+timeout survivable: a failed decision arms `estado$resync`, `app.R` polls
+`GET /state` once a second until one answer lands, and `finish_can_invoke()`
+keeps a `/finish` retry from double-posting into a 409. Both are unit-tested
+(`test-utils.R`, `test-state.R`).
+
+**Prevention:** `app/dev/load_test.sh 1 10` before any release that touches
+the API's concurrency or the client's timeouts. It is not in CI (§10's
+divergence: CI has no models or dataset, so its p95 would measure a stand-in)
+— it runs on the dev box or the VM.
+
+### Capacity: ten users is the ceiling, twelve are not
+
+The phase 8 numbers (2026-10-09, 8-core/16 GB host, profiles 1 and 10):
+median day **110 s** with one user and **4281 s** with ten (the target is
+≤ 720 s), p95 `/sensitivity` 1.98 s → 19.6 s, API RSS pinned at ~1143 MB,
+host `MemAvailable` bottoming at **1978 MB**. §1099 allows raising
+`max-total-instances` to 12 only with ≥ 2 GB of headroom *and* acceptable
+latency; neither holds. Note the measurement host also runs the ten Chromiums
+production does not, so the memory floor there is pessimistic — the latency
+is not, and it alone settles it. If the queue ever needs to shrink, the lever
+is more API processes behind one address (plumber2 will not go concurrent),
+not a bigger `max-total-instances`.
+
+---
+
 ## Manual checks that are deliberately not in CI
 
 Section 10 excludes `pa11y` and visual regression from CI and asks for a

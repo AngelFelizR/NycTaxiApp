@@ -82,6 +82,33 @@ api_async <- function(fn, ctx, ...) {
 #  - ok -> the value the api_* function returned, unwrapped
 # Callers all do `res <- task_result(t); if (!is.null(res)) ...`, so NULL on
 # failure keeps every one of them correct without touching them.
+# May the UI start (or start again) POST /finish? Three rules, extracted
+# because they are a policy, not plumbing -- and because getting them wrong is
+# how a day ends on a blank Trips screen instead of Results:
+#
+#   - "idle": the clock just ran out, always allowed.
+#   - a settled task ("success"/"error") may be retried, but only while the
+#     attempts are under max_attempts: a missing ReferenceDistribution.qs2
+#     answers 503 forever, and re-raising it once per flush would notify
+#     forever (the guard the original comment guarded).
+#   - never while a resync is in flight: a /finish that timed out after 45 s
+#     is STILL STORED server side, and re-posting gets 409 "already finished"
+#     -- an answer with no result in it. The GET /state that the resync runs
+#     does carry `result` for a finished day, so waiting for it is what turns
+#     the timeout into a recovery instead of a dead end.
+#
+# "running" is never allowed: one in-flight finish is plenty.
+finish_can_invoke <- function(task_status, attempts, recovering,
+                              max_attempts = 3L) {
+  # ExtendedTask's own vocabulary (shiny::ExtendedTask$private$rv_status):
+  # "initial" before the first invoke -- there is no "idle" -- then
+  # "running", "success", "error". A wrong first word here silently blocks
+  # /finish forever: every session ends on an empty Trips screen.
+  if (task_status %in% c("initial", "idle")) return(TRUE)
+  if (!task_status %in% c("success", "error")) return(FALSE)
+  attempts < max_attempts && !isTRUE(recovering)
+}
+
 task_result <- function(task) {
   out <- tryCatch(task$result(), error = function(e) stop(e))
   if (!is.list(out)) return(out)

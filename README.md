@@ -78,6 +78,7 @@ R comes from Nix; there is no R outside the pinned environment.
 nix-shell                                  # root env (default.nix -A shell)
 cd app && Rscript tests/testthat.R         # UI unit tests
 ./dev/e2e.sh                               # browser suite: real API + share + proxy
+./dev/load_test.sh 1 10                    # load run: N sessions, both strategies
 ```
 
 Secrets live in a single root `.env` (copy `.env.example`); it is gitignored.
@@ -85,6 +86,35 @@ Models and datasets are not baked into images: they are downloaded once at
 deploy time from the
 [`v0.0.1-data` release](https://github.com/AngelFelizR/NycTaxiApp/releases/tag/v0.0.1-data)
 and mounted read-only.
+
+## Load testing (phase 8)
+
+`app/dev/load_test.sh` runs N concurrent browser sessions against one app —
+each with its own client IP and its own decision strategy — and reports the
+three numbers the master document asks for (§1099): the server's memory, the
+p95 latency of `/sensitivity` **as the API itself measured it under that
+load** (section 11's log, not a probe's), and the median day from SQL. Not in
+CI: CI has no models and no dataset, so a p95 measured there would be a number
+about the stand-in.
+
+Measured on the 8-core / 16 GB development host (2026-10-09), profiles 1 and
+10, both strategies, after the fixes the run itself forced:
+
+| | 1 user | 10 users |
+|---|---|---|
+| Sessions that finished their day | 1/1 | 10/10 (10 distinct experiments) |
+| Median day (SQL) | 110 s | 4281 s — above the ≤ 12 min target |
+| p95 `/sensitivity` | 1.98 s | 19.6 s |
+| Peak RSS (app · api) | 483 · 1143 MB | 575 · 1143 MB |
+| Host MemAvailable, minimum | 11.8 GB | **1978 MB** |
+
+**Ten users is the ceiling** (§1099 allows 12 only with ≥ 2 GB of headroom,
+and the median day already blows the 12-minute target at 10). The host that
+measures also runs the ten Chromiums production does not run, so the memory
+floor here is pessimistic; the latency is not. The PNG cache hit rate §1099
+also asks for is not part of this run: no load session opens a share card, and
+the cache now lives at the edge (ADR-0010), where `/metrics`'s
+`png_renders_total` is the counter.
 
 ## Implementation phases
 

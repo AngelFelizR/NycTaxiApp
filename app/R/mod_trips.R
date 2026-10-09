@@ -112,21 +112,35 @@ mod_trips_server <- function(id, estado, reset, dark) {
     # /finish is the only place that computes outcome and user_percentile
     # (4.6 -- "siempre en el servidor"), so the UI has to call it when the
     # clock runs out; nothing else flips the day to finished.
-    # The status guard stops the retry loop when the call fails: a missing
-    # ReferenceDistribution.qs2 answers 503 and re-raising it once per flush
-    # would notify forever.
+    # The guard is finish_can_invoke() (utils.R): bounded retries, quiet once
+    # the call has failed for good, and never before the resync has answered
+    # -- the load test lost days to a /finish that timed out, was still
+    # stored, and then found nothing on screen but an empty Trips tab.
     finish_task <- ExtendedTask$new(function(ctx, id) {
       api_async("api_finish", ctx, id)
     })
+    finish_attempts <- reactiveVal(0L)
     observe({
       s <- st()
       req(identical(estado$status, "in_progress"), shift_over(s))
-      req(!finish_task$status() %in% c("running", "success", "error"))
+      req(finish_can_invoke(finish_task$status(), finish_attempts(),
+                            isTRUE(estado$resync)))
+      finish_attempts(finish_attempts() + 1L)
       finish_task$invoke(estado_ctx(estado), estado$experiment_id)
     })
     observe({
       res <- task_result(finish_task)
-      if (!is.null(res)) estado_set_finished(estado, res)
+      if (!is.null(res)) {
+        estado_set_finished(estado, res)
+        return()
+      }
+      # NULL: the API said no or said nothing. Arm the resync (app.R polls
+      # GET /state while it is set): a timed-out /finish landed server side,
+      # and /state carries `result` for a finished day, so one GET ends the
+      # day without posting again -- a second POST would only find 409.
+      if (finish_task$status() %in% c("success", "error")) {
+        estado$resync <- TRUE
+      }
     })
 
     # --- sidebar KPIs --------------------------------------------------------

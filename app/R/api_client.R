@@ -38,7 +38,16 @@ api_header <- function(req, name, value) {
 api_request <- function(ctx, path, resume = FALSE) {
   req <- request(ctx$url) |>
     req_url_path_append(path) |>
-    req_timeout(15) |>
+    # 45 s, not 15: plumber2 serves ONE request at a time, so at the capacity
+    # section 1.1 contemplates (10 concurrent users) the queue is the
+    # latency. Measured at load profile 10: /decisions up to 25 s, /state up
+    # to 32 s -- the old 15 s cut off answers the server was still computing,
+    # and the /state resync that recovers a lost answer timed out the same
+    # way, leaving the screen dead with the decision already stored. At
+    # profile 1 every call is < 2 s and nothing here is observable; the bound
+    # still exists (a dead API answers in 45 s, not forever), and the task
+    # button's spinner covers the wait.
+    req_timeout(45) |>
     api_header("X-Internal-Key", ctx$key)
   if (nzchar(ctx$ip)) req <- api_header(req, "X-Client-IP", ctx$ip)
   if (resume && nzchar(ctx$resume_code)) {

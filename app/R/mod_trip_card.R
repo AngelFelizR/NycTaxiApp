@@ -59,7 +59,24 @@ mod_trip_card_server <- function(id, estado, dark) {
     observeEvent(input$reject, send_decision(FALSE))
     observe({
       res <- task_result(decision_task)
-      if (!is.null(res)) estado_set_state(estado, res)
+      if (!is.null(res)) {
+        estado_set_state(estado, res)
+        return()
+      }
+      # NULL here means the API said no (a still-running task re-raises its
+      # silent error inside task_result and never gets past that line). The
+      # screen may now be stale in the worst possible way: POST /decisions
+      # that exceeds the client's 45 s (api_request) is STILL STORED by the
+      # single-threaded API -- the load test found exactly this under four
+      # concurrent sessions -- and in_progress has no /state poll to notice,
+      # so the visitor kept seeing an offer that was already decided. Ask for
+      # the truth instead: app.R turns estado$resync into one GET /state.
+      # Only a SETTLED task can have failed: "initial" (never invoked) and
+      # "running" are not failures, and mistaking them for one would poll
+      # GET /state from the moment the session opens.
+      if (decision_task$status() %in% c("success", "error")) {
+        estado$resync <- TRUE
+      }
     })
 
     # --- map: zones once, tiles follow the theme, route per offer ------------

@@ -27,7 +27,10 @@ init_estado <- function(session) {
     progress = 0L,        # model_progress while status is setup
     result = NULL,        # ExperimentResult once the day is finished
     experiment = NULL,    # last Experiment record (finish returns the full one)
-    email = NULL          # given during Setup; the API never echoes it back
+    email = NULL,         # given during Setup; the API never echoes it back
+    # Set when a call came back as a failure: the answer never reached this
+    # session, so app.R polls GET /state once to put the screen back in sync.
+    resync = FALSE
   )
 }
 

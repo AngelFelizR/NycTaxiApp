@@ -52,15 +52,39 @@ app_pid=""
 api_pid=""
 share_pid=""
 proxy_pid=""
+# How long each service gets to answer. The defaults are what CI and the
+# browser suite have always had; dev/load_test.sh raises them, because a
+# cold nix-shell unpacks its pin tarball first and 90 s is sometimes just
+# that download -- the load run died once on exactly this, with the API
+# seconds from listening.
+API_WAIT_S="${API_WAIT_S:-90}"
+SHARE_WAIT_S="${SHARE_WAIT_S:-60}"
+APP_WAIT_S="${APP_WAIT_S:-60}"
+# Every child starts under setsid(1) (below), so its pid is a process-group
+# leader and killing the GROUP takes the whole tree. Killing only the wrapper
+# is not enough: a nix-shell dies on TERM while the R process underneath is
+# reparented and keeps the port -- the second profile of a load run found
+# "API already answering" with an orphan the first profile had "killed".
+kill_group() {
+  [ -n "$1" ] || return 0
+  kill -TERM -- "-$1" 2>/dev/null || kill -TERM "$1" 2>/dev/null || true
+}
 cleanup() {
-  [ -n "$app_pid" ] && kill "$app_pid" 2>/dev/null || true
-  [ -n "$proxy_pid" ] && kill "$proxy_pid" 2>/dev/null || true
-  [ -n "$api_pid" ] && kill "$api_pid" 2>/dev/null || true
-  [ -n "$share_pid" ] && kill "$share_pid" 2>/dev/null || true
+  kill_group "$app_pid"
+  kill_group "$proxy_pid"
+  kill_group "$api_pid"
+  kill_group "$share_pid"
 }
 trap cleanup EXIT
+# A TERM to this script (dev/load_test.sh holds it in the background and ends
+# the run by killing it) has to run the same cleanup: without a trap, bash
+# dies on the signal and the API, share/, the proxy and the app are orphaned.
+trap 'cleanup; exit 143' TERM INT
 
-log_dir="$(mktemp -d)"
+# E2E_LOG_DIR lets a caller own the logs -- load_test.sh needs api.log, because
+# the section 11 logger's duration_ms is where p95 of /sensitivity comes from.
+log_dir="${E2E_LOG_DIR:-$(mktemp -d)}"
+mkdir -p "$log_dir"
 echo "logs: $log_dir"
 
 # The database and Redis live in the root compose. Outside it -- where this
@@ -114,10 +138,10 @@ start_api() {
 
   if ! api_up; then
     echo "starting the API on :${API_PORT}"
-    (cd "$ROOT" && exec nix-shell api/default.dev.nix --run \
+    (cd "$ROOT" && exec setsid nix-shell api/default.dev.nix --run \
       "Rscript api/plumber.R") >"$log_dir/api.log" 2>&1 &
     api_pid=$!
-    for _ in $(seq 1 90); do
+    for _ in $(seq 1 "$API_WAIT_S"); do
       api_up && break
       kill -0 "$api_pid" 2>/dev/null || break
       sleep 1
@@ -136,10 +160,10 @@ start_api() {
   # so the email prompt in Results is not testable until this is running.
   if ! share_up; then
     echo "starting share/ on :${SHARE_PORT:-8020}"
-    (cd "$ROOT" && exec nix-shell share/default.dev.nix --run \
+    (cd "$ROOT" && exec setsid nix-shell share/default.dev.nix --run \
       "Rscript share/plumber.R") >"$log_dir/share.log" 2>&1 &
     share_pid=$!
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 "$SHARE_WAIT_S"); do
       share_up && break
       kill -0 "$share_pid" 2>/dev/null || break
       sleep 1
@@ -160,11 +184,11 @@ start_api
 # session is seen as 127.0.0.1 and the IP test would compare the socket
 # address against itself. dev/e2e-proxy.js explains the rest.
 PROXY_PORT="$PROXY_PORT" PROXY_UPSTREAM_PORT="$APP_PORT" \
-  node dev/e2e-proxy.js >"$log_dir/proxy.log" 2>&1 &
+  setsid node dev/e2e-proxy.js >"$log_dir/proxy.log" 2>&1 &
 proxy_pid=$!
 echo "proxy on :$PROXY_PORT -> :$APP_PORT (pid $proxy_pid)"
 
-Rscript -e 'shiny::runApp(".", host = "127.0.0.1",
+setsid Rscript -e 'shiny::runApp(".", host = "127.0.0.1",
                            port = as.integer(Sys.getenv("APP_PORT")))' \
   >"$log_dir/app.log" 2>&1 &
 app_pid=$!
@@ -174,11 +198,11 @@ echo "app on :$APP_PORT (pid $app_pid)"
 # silently: the first thing a missing data volume looks like is a hang. The
 # URL is the proxy's, so this also proves the proxy forwards.
 up=0
-for _ in $(seq 1 120); do
+for _ in $(seq 1 "$APP_WAIT_S"); do
   if curl -sf --max-time 2 "$CYPRESS_BASE_URL/" > /dev/null 2>&1; then up=1; break; fi
   if ! kill -0 "$app_pid" 2>/dev/null; then break; fi
   if ! kill -0 "$proxy_pid" 2>/dev/null; then break; fi
-  sleep 0.5
+  sleep 1
 done
 if [ "$up" != "1" ]; then
   echo "the app never answered on $CYPRESS_BASE_URL" >&2
@@ -189,6 +213,20 @@ if [ "$up" != "1" ]; then
   exit 1
 fi
 echo "app is up (through the proxy)"
+
+# Hold mode (dev/load_test.sh): the stack stays up and the caller drives the
+# sessions itself. The READY line is the contract between the two scripts --
+# the pids are what gets sampled for server CPU/RSS while N browsers run, and
+# log_dir is where the API's section 11 log lives (p95 of /sensitivity).
+if [ "${E2E_HOLD:-}" = "1" ]; then
+  echo "E2E_READY app_pid=$app_pid api_pid=$api_pid share_pid=$share_pid proxy_pid=$proxy_pid log_dir=$log_dir base_url=$CYPRESS_BASE_URL"
+  echo "stack is up (E2E_HOLD); waiting to be killed"
+  # If the app dies under load the caller has to know now, not when its
+  # sessions time out an hour later.
+  while kill -0 "$app_pid" 2>/dev/null; do sleep 1; done
+  echo "the app process exited" >&2
+  exit 1
+fi
 
 echo "DIAG PATH=$PATH"
 echo "DIAG cypress=$(command -v cypress || echo NO) node=$(command -v node || echo NO)"

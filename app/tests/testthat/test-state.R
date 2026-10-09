@@ -124,3 +124,11 @@ test_that("estado_set_finished tolerates a NULL answer", {
   expect_null(estado_set_finished(estado, NULL))
   isolate(expect_null(estado$experiment))
 })
+
+test_that("estado starts with no resync pending", {
+  # mod_trip_card sets this flag when an answer never arrived; the /state
+  # recovery poll in app.R runs only while it is TRUE, so a fresh session
+  # must start with it off or every visitor would poll from the first second.
+  estado <- init_estado(fake_session())
+  expect_false(isolate(estado$resync))
+})

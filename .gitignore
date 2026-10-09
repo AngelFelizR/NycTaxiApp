@@ -43,3 +43,10 @@ app/cypress/videos/
 app/cypress/downloads/
 app/cypress/results/
 node_modules/
+
+# Load-test output (dev/load_test.sh): per-run logs, JSONL and the report
+app/dev/load/
+# ...and the same output when the run was pointed at the repo root instead
+# (LOAD_OUT_DIR=tmp-load-out*): 26 debugging runs of 2026-10-09, superseded
+# by the ones under app/dev/load/.
+tmp-load-out*/

@@ -246,7 +246,16 @@ EXPECTED_POLICY_STEPS <- 60L
 # stopped answering) would leave the day in setup forever, so after this many
 # seconds the row is retired and the client gets a 503 instead of an endless
 # spinner. A healthy run takes 10-20s.
-SETUP_TIMEOUT_S <- 120
+#
+# Read from the environment because N sessions creating at once share the
+# cores: ten trajectory forks on eight cores pass 120s easily -- the load test
+# at profile 10 retired 5 of 10 days this way while the other five played on.
+# The default is section 4.6's number, so nothing changes for anyone who does
+# not set it; a slower box raises SETUP_TIMEOUT_S instead of losing days.
+SETUP_TIMEOUT_S <- local({
+  v <- suppressWarnings(as.numeric(Sys.getenv("SETUP_TIMEOUT_S", "")))
+  if (is.finite(v) && v > 0) v else 120
+})
 
 setup_timed_out <- function(exp) {
   age <- as.numeric(difftime(Sys.time(), exp$created_at, units = "secs"))

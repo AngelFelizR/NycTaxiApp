@@ -165,3 +165,64 @@ test_that("log_event writes one JSON object per line to stderr", {
   expect_equal(parsed$channel, "x")
   expect_true(nzchar(parsed$ts))
 })
+
+# task_result is the only place that translates an ExtendedTask's three
+# answers for the seven callers (utils.R). A failure has to come back as NULL
+# -- the callers all do `if (!is.null(res))` -- and a task that is still
+# running has to re-raise its silent error instead of being mistaken for a
+# failure, because mod_trip_card arms its /state resync on the difference.
+fake_task <- function(result) list(result = function() result)
+
+test_that("task_result unwraps the value of a settled task", {
+  expect_equal(task_result(fake_task(list(value = list(x = 1)))),
+               list(x = 1))
+})
+
+test_that("task_result reports an API failure as NULL, not a value", {
+  # The failure branch notifies, and showNotification needs a reactive domain
+  # ("attempt to apply non-function" without one). taxiapp declares no imports
+  # (ADR-0007: exportPattern only), so showNotification is found on the search
+  # path and cannot be mocked in the package's namespace -- the smallest real
+  # thing is a duck of a session that records what it was told.
+  notified <- NULL
+  session <- list(sendNotification = function(type, message, ...) {
+    notified <<- list(type = type, message = message)
+  })
+  out <- shiny::withReactiveDomain(session, {
+    task_result(fake_task(list(failure = "Models are not loaded.")))
+  })
+  expect_null(out)
+  # showNotification hands the session a nested payload, not a plain string;
+  # flatten it before looking for the API's own message inside.
+  expect_false(is.null(notified))
+  expect_match(paste(unlist(notified), collapse = " "),
+               "Models are not loaded", fixed = TRUE)
+})
+
+test_that("task_result re-raises the silent error of a task still running", {
+  # Mirrors what a pending ExtendedTask throws: shiny.silent.error inherits
+  # from "error" (only then does task_result's tryCatch(error=) see it), with
+  # the message Shiny strips on the way across. Getting the classes wrong here
+  # does not fail the assertion -- the condition escapes and halts the run.
+  running <- structure(list(message = "", call = NULL),
+                       class = c("shiny.silent.error", "error", "condition"))
+  expect_error(task_result(fake_task(stop(running))),
+               class = "shiny.silent.error")
+})
+
+test_that("finish_can_invoke starts once, retries bounded, never while a resync runs", {
+  # First attempt when the clock runs out. ExtendedTask calls that state
+  # "initial" -- there is no "idle" -- and blocking it leaves every day on a
+  # blank Trips screen, so the test pins the real word.
+  expect_true(finish_can_invoke("initial", 0L, FALSE))
+  # A settled attempt may be retried while attempts remain...
+  expect_true(finish_can_invoke("success", 1L, FALSE))
+  expect_true(finish_can_invoke("error", 2L, FALSE))
+  # ...but not past the cap (the 503-forever case), and never before the
+  # resync has answered -- a /finish that timed out is already stored and a
+  # re-post only finds 409.
+  expect_false(finish_can_invoke("success", 3L, FALSE))
+  expect_false(finish_can_invoke("success", 1L, TRUE))
+  # One in-flight finish is plenty.
+  expect_false(finish_can_invoke("running", 0L, FALSE))
+})

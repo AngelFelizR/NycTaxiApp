@@ -129,11 +129,20 @@ and `client-ip.cy.js`. `app/dev/mock_api.R`,
 `./dev/e2e.sh` starts the API, share/, the client-IP proxy and the app.
 R-slim (the R half of the same push) is ADR-0011 and is done.
 
-**Still to do:** `app/dev/load_test.sh` (N sessions, two strategies, server
-CPU/RSS) and pa11y via Lighthouse. The deletion commit ADR-0012 called for --
+**Still to do:** pa11y via Lighthouse (manual, §10 keeps it out of CI). The
+deletion commit ADR-0012 called for --
 `shinytest2`, `chromium` and `nix/test-tools.nix` out of `nix/` -- is done:
 the image was rebuilt and pushed with the new `nix-hash`, in 10.5 minutes
 with nothing compiled, thanks to the binary cache.
+
+**`app/dev/load_test.sh` is landed and has run** (2026-10-09): profiles 1
+and 10 against the real API, both strategies, 10/10 sessions finishing their
+own day. The numbers (median day, p95 of `/sensitivity`, server RSS) are in
+the README; the three bugs the run forced out — the 15 s client timeout, the
+10 s zone re-pick faster than the endpoint's own p95, and the orphaned R
+processes between profiles — are in the CHANGELOG, and the capacity verdict
+(10 is the ceiling, 12 is not) is in the runbook. Profile 20 was dropped on
+purpose: the ceiling was already measured at 10.
 
 ### Feasibility, measured
 

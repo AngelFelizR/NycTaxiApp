@@ -59,6 +59,11 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 - [integration/tests/](../integration/tests/testthat/) — the three descriptions of the system
 - [app/cypress/](../app/cypress/e2e/) — browser specs against the real stack
 - [app/dev/e2e.sh](../app/dev/e2e.sh) · [app/dev/e2e-proxy.js](../app/dev/e2e-proxy.js) — orchestrator and client-IP proxy
+- [app/dev/load_test.sh](../app/dev/load_test.sh) — load harness (N sessions, §8 numbers) — ADR [0012](decisions/0012-cypress-is-the-e2e-and-load-tool.md)
+- [app/cypress/load/load.cy.js](../app/cypress/load/load.cy.js) — one load session (own day, own strategy, own results)
+- [app/dev/load_sessions.js](../app/dev/load_sessions.js) · [load_sessions.selftest.sh](../app/dev/load_sessions.selftest.sh) — cross-session analyzer and its smoke
+- [app/dev/median_day.R](../app/dev/median_day.R) — the median day from SQL
+- [app/cypress/redis_client.js](../app/cypress/redis_client.js) — RESP by hand (Cypress tasks + harness FLUSHDB)
 - [api/dev/coverage.R](../api/dev/coverage.R) — §10 coverage, both thresholds
 - [api/dev/smoke.sh](../api/dev/smoke.sh) · [api/dev/e2e_experiments.sh](../api/dev/e2e_experiments.sh) — HTTP smoke and experiment E2E
 - ADRs [0006](decisions/0006-response-schema-conformance.md), [0007](decisions/0007-both-services-are-packages.md), [0012](decisions/0012-cypress-is-the-e2e-and-load-tool.md), [0014](decisions/0014-the-ui-tests-the-real-api.md)
@@ -119,8 +124,9 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 - [infra/nginx/snippets/](../infra/nginx/snippets/) · [infra/nginx/html/](../infra/nginx/html/) — security headers, capacity page
 - [infra/shinyproxy/application.yml](../infra/shinyproxy/application.yml) — session containers, §8.3
 - [infra/scripts/backup.sh](../infra/scripts/backup.sh) · [restore_test.sh](../infra/scripts/restore_test.sh) · [disk_check.sh](../infra/scripts/disk_check.sh) · [health_check.sh](../infra/scripts/health_check.sh) — data safety and alerts
-- [docs/operations/runbook.md](operations/runbook.md) — incidents
+- [docs/operations/runbook.md](operations/runbook.md) — incidents (incl. §8 capacity ceiling)
 - [docs/operations/first-deploy.md](operations/first-deploy.md) — everything outside the repo
+- [README.md](../README.md) — the load-test numbers (phase 8)
 - ADR [0004](decisions/0004-container-hardening.md)
 - AGENTS § "Fase 7" · § "Monitor de servicios"
 

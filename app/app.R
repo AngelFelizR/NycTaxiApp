@@ -115,11 +115,20 @@ server <- function(input, output, session) {
   # While the policy and baseline trajectories are computed in the background,
   # /state is the only signal: model_progress climbs to 99 and the status
   # flips to in_progress (section 4.6).
+  #
+  # The same poll is also the recovery path for a call that failed mid-day
+  # (mod_trip_card sets estado$resync when an answer never arrived): in
+  # progress there is nothing else that could notice the screen is stale --
+  # a timed-out POST /decisions is still stored server side. One GET per
+  # second until one of them succeeds, and a failed GET leaves the flag set
+  # so the next tick tries again.
   poll_task <- ExtendedTask$new(function(ctx, id) {
     api_async("api_get_state", ctx, id)
   })
   observe({
-    req(estado$experiment_id, identical(estado$status, "setup"))
+    req(estado$experiment_id)
+    recovering <- isTRUE(estado$resync)
+    req(identical(estado$status, "setup") || recovering)
     invalidateLater(1000, session)
     if (poll_task$status() != "running") {
       poll_task$invoke(estado_ctx(estado), estado$experiment_id)
@@ -127,7 +136,10 @@ server <- function(input, output, session) {
   })
   observe({
     res <- task_result(poll_task)
-    if (!is.null(res)) estado_set_state(estado, res)
+    if (!is.null(res)) {
+      estado_set_state(estado, res)
+      estado$resync <- FALSE
+    }
   })
 }
 
