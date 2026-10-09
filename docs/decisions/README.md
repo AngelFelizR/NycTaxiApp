@@ -8,6 +8,7 @@ writing the next one.
 | Kind of decision | Where | Never here |
 |---|---|---|
 | Architectural tradeoff, with alternatives rejected | `docs/decisions/NNNN-slug.md` | AGENTS (it rots), CHANGELOG (too little room) |
+| Which file answers a given topic/tool | `docs/TOPICS.md` (links only) | prose (a claim belongs in the file it describes) |
 | Divergence from the master document | `CHANGELOG.md`, plus AGENTS if it changes the tree | never in the master document |
 | Operational procedure | `docs/operations/runbook.md` (incident) · `first-deploy.md` (one-time) | ADRs |
 | HTTP surface | `contract/*.yaml` — authoritative, linted in CI | prose |
@@ -28,6 +29,11 @@ writing the next one.
 4. Numbering is **sequential and local**: `0001`, `0002`, … It deliberately
    does not match §18's `ADR-0xx`, which is a *plan* inside an immutable
    document. The table below is the bridge between the two.
+5. **A `Fixed` entry in `CHANGELOG.md` ends with a `**Lesson:**` line** —
+   the portable lesson in one sentence, after the narrative of what broke
+   and how it was fixed. A later reader (human or agent) extracts it with a
+   `grep` instead of a close reading. Applies from this rule forward; past
+   entries are not rewritten.
 
 ## Bridge: §18's planned ADRs and where their reasoning actually lives
 

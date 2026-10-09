@@ -491,6 +491,16 @@ goes where.
   `app/dev/run_mock_api.R` and `app/tests/testthat/test-shinytest2.R` (541
   lines, 14 blocks). `test-shiny` in CI now carries Postgres, Redis, mailpit
   and the release assets verified by `fetch-assets.sh`.
+- **`docs/TOPICS.md`: a link-only index of where everything lives.** One
+  entry per topic — tool/subject → canonical file, ADR and master-doc
+  section — so the "which file answers this?" question stops costing a
+  read-through of five documents. It carries no prose of its own (it cannot
+  contradict what it points at), is extended in the same commit as whatever
+  it indexes, and is referenced from AGENTS and from the taxonomy in
+  `docs/decisions/README.md`, which gains a fifth rule: a `Fixed` entry in
+  this file now ends with a `**Lesson:**` line — the portable lesson in one
+  sentence, so the next reader extracts it with a `grep` instead of a close
+  reading. Past entries are not rewritten.
 
 ### Changed
 - **§7.1 describes three layers for the card and there are now two.** The

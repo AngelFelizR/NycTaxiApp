@@ -775,6 +775,12 @@ Se interpreta como "no es un cliente de la API". Divergencia anotada en
   `REPO_DECISION.md`, precisamente porque esta regla no existía) y la sección
   `Alternatives` de la plantilla **es obligatoria** — un ADR sin ella guarda
   una conclusión en vez de un razonamiento.
+- **`docs/TOPICS.md` = el índice de "¿dónde vive X?"**: solo enlaces
+  (herramienta/tema → fichero canónico + ADR/§), sin prosa, para no poder
+  contradecir nada. Se amplía **en el mismo commit** que lo que indexa; si un
+  enlace discrepa de su destino, el que está mal es el índice. También manda
+  que toda entrada `Fixed` del CHANGELOG termine con su línea `**Lesson:**`
+  (regla 5 de `docs/decisions/README.md`).
 - **AGENTS no lleva cifras que caducan:** ni recuentos de tests ni totales de
   nada que cambie al añadir un test. El recuento vive en la salida de CI. Si
   una frase necesita un número para ser útil, el número no va aquí.
