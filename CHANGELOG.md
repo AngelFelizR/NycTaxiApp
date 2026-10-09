@@ -1016,6 +1016,37 @@ goes where.
 
 ### Fixed
 
+- **A fresh `cp .env.example .env` broke the API before it could start.**
+  The example ships its optional knobs as blanks (`API_PORT=`,
+  `TAXI_MODELS_DIR=`, `SHARE_PORT=`, …) and all three services loaded them
+  as "set to empty". R answers `""` — not the default — for a set-but-empty
+  variable, so every `Sys.getenv(VAR, "default")` fallback was defeated:
+  `API_PORT` coerced to NA (the API never listened), `TAXI_MODELS_DIR` sent
+  every model path to `/...` (the API started and answered 503), and
+  `SHARE_PORT` did the same to share/. It never showed up here because the
+  working `.env` simply does not contain those lines. All three loaders
+  (`api`, `app`, `share`) now treat a blank value as "not set" — the rule
+  `.env.example` itself documents — and a test loads the **real**
+  `.env.example` and asserts every blank line stays unset. Verified end to
+  end: a fresh-clone `.env` (example + the four values the README says to
+  invent) starts the API with all four models and `/health` 200.
+  **Lesson:** an example config is executable documentation — the only test
+  that catches its lies is one that runs the file the README tells a
+  newcomer to copy, not the hand-tuned one that already works.
+- **CI went green while the suite that checks env drift never started.**
+  `test-integration` was filtered on `integration/**` alone, but what it
+  compares lives elsewhere: the env-example test reads `Sys.getenv()` out of
+  `api/`, `app/`, `share/` and `tools/` and requires each name to be in
+  `.env.example`. The load-test commit added `SETUP_TIMEOUT_S` to `api/`,
+  touched no file under `integration/`, and shipped undocumented — the job
+  that would have caught it was filtered out. The filter now includes every
+  input the suite reads (`contract/`, the four code roots, `.env.example`),
+  and the missing knob is documented (blank = the section 4.6 default of
+  120). `actionlint` on the workflow: 0 errors.
+  **Lesson:** a path filter is a bet about what a test *reads*, not about
+  where the test *lives* — when a suite compares files across directories,
+  the filter has to name every one of them or CI proves nothing about the
+  comparison.
 - **`www/styles.css` was never loaded.** The `<link>` existed under the
   original `page_fluid` UI and was lost in the phase-5 migration to
   `page_navbar`; the sheet has answered 200 since then while nothing in the

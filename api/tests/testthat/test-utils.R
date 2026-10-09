@@ -63,7 +63,8 @@ test_that("read_json_body enforces content type and valid JSON", {
 
 test_that("load_dotenv only fills variables that are not set", {
   path <- tempfile(fileext = ".env")
-  writeLines(c("FOO_FROM_ENV=bar", "# comment", "EMPTY_LIKE=x"), path)
+  writeLines(c("FOO_FROM_ENV=bar", "# comment", "EMPTY_LIKE=x",
+               "EMPTY_BLANK="), path)
   on.exit(unlink(path), add = TRUE)
   old <- Sys.getenv("FOO_FROM_ENV", unset = NA_character_)
   on.exit(
@@ -74,6 +75,40 @@ test_that("load_dotenv only fills variables that are not set", {
   expect_true(load_dotenv(path))
   expect_identical(Sys.getenv("FOO_FROM_ENV"), "already")
   expect_identical(Sys.getenv("EMPTY_LIKE"), "x")
+  # A blank value must stay UNSET, not become "set to empty": R answers ""
+  # (not the default) for a set-but-empty variable, so loading `VAR=` would
+  # defeat every Sys.getenv(VAR, "default") -- on a fresh .env.example copy
+  # that turned API_PORT into NA and TAXI_MODELS_DIR into "/...".
+  expect_identical(Sys.getenv("EMPTY_BLANK", unset = NA_character_),
+                   NA_character_,
+                   label = "a blank .env line leaves the variable unset")
+})
+
+test_that("every blank line in the real .env.example stays unset after load", {
+  # The fresh-clone regression, against the actual file the README tells you
+  # to copy: loading it must not shadow a single default. This is the test
+  # that would have caught API_PORT=/TAXI_MODELS_DIR= on day one.
+  example <- file.path(model_state$repo_root, ".env.example")
+  skip_if_not(file.exists(example), ".env.example not reachable from here")
+  lines <- trimws(readLines(example, warn = FALSE))
+  declared <- sub("=.*$", "", grep("^[A-Z0-9_]+=", lines, value = TRUE))
+  blanks <- sub("=.*$", "", grep("^[A-Z0-9_]+=$", lines, value = TRUE))
+  expect_gt(length(blanks), 5)
+  # load_dotenv writes to the process env: save everything the file can touch
+  # (blanks and non-blanks alike) so no later test inherits http://api:8000.
+  saved <- setNames(lapply(declared, function(k) Sys.getenv(k, unset = NA_character_)),
+                    declared)
+  on.exit(for (k in declared) {
+    if (is.na(saved[[k]])) Sys.unsetenv(k)
+    else do.call(Sys.setenv, setNames(list(saved[[k]]), k))
+  }, add = TRUE)
+  for (k in declared) Sys.unsetenv(k)
+  load_dotenv(example)
+  still_unset <- vapply(blanks, function(k) is.na(Sys.getenv(k, unset = NA_character_)),
+                        logical(1))
+  expect_true(all(still_unset),
+              label = paste("blank lines load_dotenv set:",
+                            paste(blanks[!still_unset], collapse = ", ")))
 })
 
 test_that("iso_utc and week_day_names match the contract examples", {

@@ -34,6 +34,9 @@ app_data_dir <- function() {
 # Fill unset variables from a KEY=VALUE file. Never overrides what the
 # environment already carries (Docker/ShinyProxy inject the real values in
 # production), and never fails when the file is absent -- production has none.
+# An empty value means "not set", never "set to empty" (same rule as the
+# api/share loaders): a set-but-empty variable defeats Sys.getenv's default,
+# and .env.example ships its optional knobs as `VAR=`.
 load_env_file <- function(path) {
   if (!file.exists(path)) return(invisible(FALSE))
   lines <- trimws(readLines(path, warn = FALSE))
@@ -42,7 +45,7 @@ load_env_file <- function(path) {
     if (!grepl("=", line, fixed = TRUE)) next
     key <- trimws(sub("=.*$", "", line))
     value <- trimws(sub("^[^=]*=", "", line))
-    if (nzchar(key) && !nzchar(Sys.getenv(key))) {
+    if (nzchar(key) && nzchar(value) && !nzchar(Sys.getenv(key))) {
       do.call(Sys.setenv, stats::setNames(list(value), key))
     }
   }

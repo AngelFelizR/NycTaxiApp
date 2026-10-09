@@ -46,8 +46,9 @@ if (nzchar(Sys.getenv("R_COVR"))) {
 # Same .env as plumber.R: inside the dev container it carries POSTGRES_*,
 # REDIS_*, API_INTERNAL_KEY and IP_HASH_SALT (the container injects no env of
 # its own), so the phase-3 tests hit the real Postgres and Redis of the root
-# compose. TAXI_DATA_DIR/TAXI_MODELS_DIR are not in .env, so they keep their
-# /data and /models defaults unless a test overrides them.
+# compose. TAXI_DATA_DIR/TAXI_MODELS_DIR are blank (or absent) in .env, and
+# load_dotenv skips blanks, so they keep their /data and /models defaults
+# unless a test overrides them.
 load_dotenv(file.path(api_dir, "..", ".env"))
 # POST /experiments forks the trajectory computation by default; tests run it
 # inline so assertions never race a background child. The async behaviour is

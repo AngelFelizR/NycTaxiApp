@@ -6,6 +6,10 @@
 
 # KEY=VALUE pairs from a file, never overriding what the environment already
 # carries (Docker and ShinyProxy inject the real values in production).
+# Empty value = not set (same rule as api/R/utils.R load_dotenv, which this
+# mirrors): .env.example ships `SHARE_PORT=` and friends as blanks, and a
+# set-but-empty variable defeats Sys.getenv's default -- share/plumber.R
+# would then coerce the port to NA and refuse to start on a fresh clone.
 load_dotenv <- function(path) {
   if (!file.exists(path)) return(invisible(FALSE))
   lines <- trimws(readLines(path, warn = FALSE))
@@ -14,7 +18,7 @@ load_dotenv <- function(path) {
     if (!grepl("=", line, fixed = TRUE)) next
     key <- trimws(sub("=.*$", "", line))
     value <- trimws(sub("^[^=]*=", "", line))
-    if (nzchar(key) && !nzchar(Sys.getenv(key))) {
+    if (nzchar(key) && nzchar(value) && !nzchar(Sys.getenv(key))) {
       do.call(Sys.setenv, stats::setNames(list(value), key))
     }
   }

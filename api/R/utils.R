@@ -37,7 +37,13 @@ api_error <- function(response, status, error, message) {
 }
 
 # Load KEY=VALUE pairs from the repo .env without overriding variables that
-# are already set (Docker injects them in production).
+# are already set (Docker injects them in production). An EMPTY value is
+# "not set", not "set to empty": .env.example ships every knob as `VAR=`, and
+# R returns "" -- not the default -- for a set-but-empty variable, so loading
+# a blank line would defeat every Sys.getenv(VAR, "default") fallback. That
+# is not theoretical: a fresh `cp .env.example .env` set API_PORT="" (the
+# port coerced to NA and the API never started) and TAXI_MODELS_DIR="" (model
+# paths resolved to /..., so the API started and answered 503).
 load_dotenv <- function(path) {
   if (!file.exists(path)) return(invisible(FALSE))
   lines <- readLines(path, warn = FALSE)
@@ -47,7 +53,7 @@ load_dotenv <- function(path) {
     if (!grepl("=", line, fixed = TRUE)) next
     key <- trimws(sub("=.*$", "", line))
     value <- trimws(sub("^[^=]*=", "", line))
-    if (nzchar(key) && !nzchar(Sys.getenv(key))) {
+    if (nzchar(key) && nzchar(value) && !nzchar(Sys.getenv(key))) {
       do.call(Sys.setenv, setNames(list(value), key))
     }
   }

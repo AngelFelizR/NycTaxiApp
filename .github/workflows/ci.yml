@@ -110,8 +110,21 @@ jobs:
               - 'nix/**'
               - 'Dockerfile'
               - '.dockerignore'
+            # The integration suite reads the CODE of the three services and
+            # .env.example and compares them against the contract and against
+            # each other, so a change on either side has to re-run it.
+            # Filtering it on integration/** alone let an undocumented env
+            # knob (SETUP_TIMEOUT_S, added to api/) ship under a green CI:
+            # the job that would have caught it never started.
             integration:
               - 'integration/**'
+              - 'contract/**'
+              - '.env.example'
+              - 'api/**'
+              - 'app/**'
+              - 'share/**'
+              - 'shared/**'
+              - 'tools/**'
 
   # ---------------------------------------------------------------------
   # test-contract: cheap and the contract is what every service reads, so it

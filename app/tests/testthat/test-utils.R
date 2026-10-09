@@ -226,3 +226,22 @@ test_that("finish_can_invoke starts once, retries bounded, never while a resync 
   # One in-flight finish is plenty.
   expect_false(finish_can_invoke("running", 0L, FALSE))
 })
+
+test_that("load_env_file treats a blank value as unset, not as empty", {
+  # .env.example ships optional knobs as `VAR=`; setting them to "" would
+  # defeat every Sys.getenv(VAR, "default") in the client (R answers "" for
+  # a set-but-empty variable). Same rule as the api/share loaders.
+  path <- tempfile(fileext = ".env")
+  writeLines(c("BLANK_FROM_ENV=", "FILLED_FROM_ENV=hello"), path)
+  on.exit({
+    unlink(path)
+    Sys.unsetenv("BLANK_FROM_ENV")
+    Sys.unsetenv("FILLED_FROM_ENV")
+  }, add = TRUE)
+  Sys.unsetenv("BLANK_FROM_ENV")
+  Sys.unsetenv("FILLED_FROM_ENV")
+  expect_true(load_env_file(path))
+  expect_identical(Sys.getenv("BLANK_FROM_ENV", unset = NA_character_),
+                   NA_character_, label = "blank line left the variable unset")
+  expect_identical(Sys.getenv("FILLED_FROM_ENV"), "hello")
+})
