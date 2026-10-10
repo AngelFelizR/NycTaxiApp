@@ -81,16 +81,20 @@ zones**, loaded from Parquet in ~4.5 s / 334 MB at API startup.
 ### Prerequisites
 
 - **Docker + Compose v2** (the only host dependency for running it)
-- An SSH key at `~/.ssh/id_ed25519.pub` (the dev container installs it)
-- ~10 GB of disk for the dev path: the dev image (~9 GB, pulled from
-  GHCR) + the release assets (~534 MB). The three production images
-  (~14 GB) are only needed to run `smoke-stack.sh` locally. Everything
-  comes from `ghcr.io/angelfelizr/*` — see
+- ~15 GB of disk: the release assets (~534 MB) plus either the three test
+  images (~14 GB, built on first `up`) or the development image (~9 GB,
+  pulled). The three production images are only needed to run
+  `smoke-stack.sh` locally.
+- Only for *developing*, not for running: an SSH key at
+  `~/.ssh/id_ed25519.pub` (the dev container installs it)
+- Everything is pulled from `ghcr.io/angelfelizr/*` — see
   [ADR-0015](docs/decisions/0015-mirror-third-party-images-into-ghcr.md).
 - Optional, for contract linting only: Docker is enough — Spectral runs
   in a container, there is no Node on the host
 
 ### One-time setup
+
+Same three steps for every path below:
 
 ```sh
 git clone git@github.com:AngelFelizR/NycTaxiApp.git && cd NycTaxiApp
@@ -103,17 +107,10 @@ cp .env.example .env
 # touching anything if a checksum does not match.
 MODELS_DIR=~/nyctaxi/models DATA_DIR=~/nyctaxi/data \
   ./infra/scripts/fetch-assets.sh
-
-./setup.sh    # pulls the dev image, starts the stack, installs your SSH key
-              # (add -np once you have the image locally, to skip the pull)
-ssh NycTaxi   # you are now in the dev container, repo at /root/NycTaxiApp
 ```
 
-Everything below runs **inside that container** (`ssh NycTaxi`), where
-Postgres, Redis and mailpit already resolve by name. `.env` is read from
-the repo root; the container overrides only what development needs
-(`TAXI_API_URL=http://127.0.0.1:8000`, the local SMTP catcher) — see the
-comments in `docker-compose.yml`.
+Nothing else is required to *run* the app. The SSH key below is only for
+*developing* it.
 
 ### Run the app
 
@@ -124,31 +121,51 @@ docker compose -f docker-compose.test.yml up -d
 # then open http://127.0.0.1:3838
 ```
 
-That starts **the images production runs**, Postgres, Redis, mailpit and an
-edge, in the order compose's health checks dictate. The edge is not
-decoration: it injects `X-Client-IP` (the API allows 3 experiments per IP per
-day and would otherwise count every request as the same one) and serves the
-app and `share/` from a single origin, the way Nginx does in production. Dev
-emails land in **mailpit at <http://127.0.0.1:18025>**. Tear it down with
+That starts the three images production runs, plus Postgres, Redis, mailpit
+and an edge, in the order compose's health checks dictate. Tear it down with
 `docker compose -f docker-compose.test.yml down`.
 
-First time on a fresh checkout the three images are not there yet, so use
-`up -d --build` once (the Dockerfiles build Nix from the pins; later runs are
-cached). The default tag is **`test`**, the one a workstation builds, because
-CI publishes `:latest` as **arm64 only** — the deployment VM is ARM — and it
-will not pull on an x86_64 laptop. On ARM, `NYCTAXI_TAG=latest docker compose
--f docker-compose.test.yml up -d`.
+What is in it, and what is deliberately not:
 
-It needs the release assets in the directories `.env` points at — that is what
-the one-time setup above downloads. It does **not** run ShinyProxy or TLS: the
-deployed topology is `infra/scripts/smoke-stack.sh`'s job, and this file's job
-is to let you play a day.
+- **The edge is not decoration.** It injects `X-Client-IP` (the API allows 3
+  experiments per IP per day and would otherwise count every request as the
+  same one, locking you out on the third run) and serves the app and `share/`
+  from a single origin, the way Nginx does in production.
+- Dev emails land in **mailpit at <http://127.0.0.1:18025>** — the development
+  stack owns 8025, so both can run at once.
+- **No ShinyProxy and no TLS.** That is the deployed topology, and
+  `infra/scripts/smoke-stack.sh` already covers it. This file's job is to let
+  you play a day.
 
-### Develop (the dev container)
+**First run on a fresh checkout builds the three images** — plain `up -d`
+does it, because a service with a `build:` section and no local image builds
+rather than failing on a pull. It takes ~70 minutes the first time (the
+Dockerfiles assemble a Nix closure from the pins) and seconds afterwards.
 
-To change the code you want the repo mounted and a real Nix shell, which is
-what `./setup.sh` gives you. Three services, three terminals — the API must be
-up before the UI:
+**The default tag is `test`, not `latest`, and that is deliberate.** CI
+publishes `:latest` as **arm64 only** — the deployment VM is ARM — so it will
+not pull on an x86_64 laptop (`no matching manifest for linux/amd64`). `:test`
+is what a workstation builds. On ARM, use
+`NYCTAXI_TAG=latest docker compose -f docker-compose.test.yml up -d`.
+
+### Develop (only if you are changing code)
+
+To edit the code you want the repository mounted and a real Nix shell, which
+is what `./setup.sh` gives you — it pulls the development image, starts the
+stack and installs your SSH key:
+
+```sh
+./setup.sh     # add -np once you have the image locally, to skip the pull
+ssh NycTaxi    # you are now in the dev container, repo at /root/NycTaxiApp
+```
+
+Everything below runs **inside that container** (`ssh NycTaxi`), where
+Postgres, Redis and mailpit already resolve by name. `.env` is read from
+the repo root; the container overrides only what development needs
+(`TAXI_API_URL=http://127.0.0.1:8000`, the local SMTP catcher) — see the
+comments in `docker-compose.yml`.
+
+Three services, three terminals — the API must be up before the UI:
 
 ```sh
 # Terminal 1 — the API (private, :8000)
@@ -197,7 +214,8 @@ cd /root/NycTaxiApp/app && nix-shell default.dev.nix --run "./dev/load_test.sh 1
 ### Lint the contracts (host, no Node needed)
 
 ```sh
-docker run --rm -v "$PWD:/repo" -w /repo stoplight/spectral lint \
+docker run --rm -v "$PWD:/repo" -w /repo \
+  ghcr.io/angelfelizr/spectral:latest lint \
   contract/openapi.yaml contract/share.openapi.yaml \
   --ruleset contract/.spectral.yaml        # criterion: 0 errors
 ```

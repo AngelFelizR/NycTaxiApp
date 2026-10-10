@@ -119,8 +119,9 @@ números en el runbook, sección "Manual checks"). Queda solo la fase 9.
 - `contract/.spectral.yaml` → `extends: spectral:oas` con `oas3-schema: warn`
   (Spectral valida contra OpenAPI 3.0 y falsa con construcciones 3.1).
 - **Validar (host, sin Node; criterio: 0 errores):**
-  `docker run --rm -v "$PWD:/repo" -w /repo stoplight/spectral lint contract/openapi.yaml contract/share.openapi.yaml --ruleset contract/.spectral.yaml`
-  La imagen es `stoplight/spectral` (**no** `stoplightio/spectral`, no existe).
+  `docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/angelfelizr/spectral:latest lint contract/openapi.yaml contract/share.openapi.yaml --ruleset contract/.spectral.yaml`
+  La imagen es **nuestro espejo** de `stoplight/spectral` (ADR-0015) — el CI
+  usa exactamente la misma, así que un error local y uno de CI son el mismo.
 - Convenciones aprendidas al escribirlos: `example` solo a nivel media-type
   (nunca dentro de un schema), sin `nullable` (usar `type: [string, "null"]` o
   `oneOf` + `type: "null"`), comillas YAML si un scalar plano contiene `: `,
