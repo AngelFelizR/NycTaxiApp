@@ -213,6 +213,9 @@ números en el runbook, sección "Manual checks"). Queda solo la fase 9.
   hex va literal con un comentario. `test-privacy.R` la obliga a cubrir los seis puntos de §9.1 y a que los tres enlaces existan.
 
 ## Comandos (cwd = `app/` salvo indicación)
+- **La aplicación entera, un comando** (cwd = raíz):
+  `docker compose -f docker-compose.test.yml up -d` → `http://127.0.0.1:3838`.
+  Detalles de esa pila en su propia sección más abajo.
 - Tests UI: `nix-shell default.dev.nix --run "Rscript tests/testthat.R"`
   (unitarios). **El recuento vive en la salida y en CI, no aquí.**
   NO `test_check()`/`devtools::test()`: `helper-load.R` hace `load_all()`
@@ -365,6 +368,64 @@ números en el runbook, sección "Manual checks"). Queda solo la fase 9.
     `nix-shell` no compile nada en el runner. El de la UI **no** va horneado
     porque arrastraría su propio pin (`nix/pkgs-app.nix`); se construye bajo
     demanda y ya no arrastra navegador alguno.
+  - **Nada de lo que corre en CI baja de Docker Hub** (ADR-0015). Los service
+    containers y la imagen de Spectral son espejos en
+    `ghcr.io/angelfelizr/*`, refrescados por
+    `.github/workflows/mirror-images.yml`. No es cosmética: el paso
+    "Initialize containers" es el **paso 1** del job y `docker/login-action`
+    es el 3, así que un token de Docker Hub **nunca** pudo llegar a tiempo.
+    La imagen de desarrollo tampoco está en Docker Hub — el
+    `angelfelizr/nyc-taxi-app:4.5.2` que colgaba de `docker-compose.yml` era
+    el mismo Dockerfile con otro nombre, y ya no existe esa dualidad.
+
+## La pila de test local (`docker-compose.test.yml`)
+
+- **Un solo comando, la aplicación entera** (cwd = raíz):
+  `docker compose -f docker-compose.test.yml up -d` → `http://127.0.0.1:3838`.
+  Son **las mismas tres imágenes que despliega producción** (GHCR), más
+  Postgres, Redis, mailpit y el edge, en el orden que dictan los healthchecks.
+  Abajo, `docker compose -f docker-compose.test.yml down`.
+- Requiere `.env` con `MODELS_DIR`/`DATA_DIR` y los assets del release ya
+  bajados (`infra/scripts/fetch-assets.sh`) — igual que todo lo demás.
+- **El edge no es decorativo, y no es `nginx.conf`.** Vive en
+  `infra/nginx/test.conf` y hace dos cosas: inyecta **`X-Client-IP`**
+  (`$remote_addr`, no `$http_cf_connecting_ip` — aquí no hay Cloudflare) y
+  sirve `/` → app y `/share/*`, `/waitlist` → share desde **un solo origen**,
+  como en producción. Sin ese header la API ve el mismo IP del bridge Docker
+  para todo y el límite de **3 experimentos/día por IP** te bloquea a la
+  tercera partida; no existe knob para desactivarlo (buscado: no hay ninguna
+  `RATE_*` en `api/R`). `proxy_read_timeout 3600s` también es obligatorio:
+  a los 60 s por defecto nginx mata el WebSocket de Shiny.
+- **Lo que NO lleva, a propósito:** ShinyProxy, TLS y las tres redes de §1.0.
+  Eso es lo que cubre `infra/scripts/smoke-stack.sh`; este fichero responde a
+  otra pregunta ("¿puedo jugar un día ahora"). Una sola red
+  (`nyctaxi_test_net`) y **sin** el hardening de ADR-004 (`read_only`,
+  `cap_drop`, `mem_limit`): está en `docker-compose.prod.yml` y repetirlo aquí
+  solo añade sitios donde un contenedor se pone triste en silencio.
+- **Puertos pensados para poder tener las dos pilas a la vez:** solo se
+  publica `127.0.0.1:3838` (la app) y `127.0.0.1:18025` (mailpit). El 8025,
+  el 5432 y el 6379 son del compose de desarrollo. El API **no** publica
+  puerto, igual que en producción; la línea para añadirlo está comentada en el
+  fichero.
+- Los nombres (`nyctaxi-test-*`) y el `name: nyctaxi-test` del proyecto están
+  fijados para que nada choque con la pila de producción si ambas corren.
+- **Esta pila destapó un bug que ninguna otra podía ver:** la imagen endurecida
+  de la UI devolvía **500 en `GET /`**. `bslib` y `shiny` copian sus JS y
+  fuentes de `/nix/store` (modo `0444`) a `tempdir()` con `file.copy()`, cuyo
+  `copy.mode` por defecto es `TRUE`: la copia hereda el 444 y la **siguiente**
+  resolución de la dependencia muere con EACCES. Invisible hasta ahora porque
+  el contenedor de desarrollo corre la app como **root** (sobreescribir un 444
+  está permitido) y `smoke-stack.sh` **nunca abre una sesión Shiny** — el 200
+  que comprueba es la landing de ShinyProxy, no la app. El fix está en
+  `app/Dockerfile` (`find -L … -exec chmod u+w` antes de `USER 65534`).
+  **El healthcheck del compose necesita `-w '%{http_code}'`**: con `-o /dev/null`
+  y `-s`, la stdout de `curl` está vacía y `grep -q 200` no encuentra nada.
+- **El tag por defecto es `test`, no `latest`**, y no es un capricho: CI
+  construye las tres imágenes de despliegue en `ubuntu-24.04-arm` (la VM es
+  ARM), así que `:latest` es **solo arm64** y en un portátil x86_64 da
+  `no matching manifest for linux/amd64`. `:test` es lo que construye una
+  estación de trabajo; los tres servicios llevan `build:` para que `up` construya
+  si no existe. En ARM, `NYCTAXI_TAG=latest docker compose … up -d`.
 
 ## El binario cache local de Nix (ADR-0013)
 

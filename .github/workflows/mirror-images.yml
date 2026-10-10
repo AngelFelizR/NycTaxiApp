@@ -1,0 +1,113 @@
+# Mirror the third-party images CI and the local stacks pull into GHCR.
+#
+#   gh workflow run mirror-images.yml      # on demand
+#   (also runs weekly -- see `schedule` below)
+#
+# WHY THIS EXISTS
+#
+# The 2026-10-09 red run of `main` was not our images: all four
+# ghcr.io/angelfelizr/nyc-taxi-* packages are public on GHCR with a `:latest`
+# tag. The failure was in the step GitHub calls "Initialize containers" --
+# postgres, redis and mailpit, all pulled from Docker Hub -- plus
+# `stoplight/spectral` in test-contract. Docker Hub rate-limits by IP, and a
+# GitHub-hosted runner shares its IP with every other job on the host.
+#
+# A Docker Hub token CANNOT fix this, and that is worth writing down: "Initialize
+# containers" is step 1 of the job, while `docker/login-action` is step 3. The
+# service containers are pulled before any of our steps run, so no credential we
+# provide can reach them. The only fix is to not depend on Docker Hub at all.
+# ADR-0015 records the alternatives.
+#
+# WHAT IT DOES
+#
+# `docker buildx imagetools create` copies the manifest *and* the blobs between
+# registries (verified: it prints one "copying sha256:... from docker.io to
+# ghcr.io" per layer and the result is pullable), and it keeps the whole
+# platform list -- a `docker pull`/`push` round trip would have dropped every
+# architecture but the runner's.
+#
+# The copies are COPIES, not live mirrors: the weekly `schedule` refreshes them,
+# and bumping a version means editing both this list and the references in
+# .github/workflows/ci.yml. That is the price of not talking to Docker Hub, and
+# it is a price worth paying -- see the ADR.
+
+name: Mirror images
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Monday 04:17 UTC -- off the hour on purpose, so it does not queue
+    # behind every other cron in the organisation.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+concurrency:
+  group: mirror-images
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    # fail-fast off: one broken upstream must not hide the rest.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # service containers of test-api / test-shiny / test-share
+          - source: docker.io/library/postgres:16-alpine
+            dest: ghcr.io/angelfelizr/postgres:16-alpine
+            package: postgres
+          - source: docker.io/library/redis:7-alpine
+            dest: ghcr.io/angelfelizr/redis:7-alpine
+            package: redis
+          - source: docker.io/axllent/mailpit:latest
+            dest: ghcr.io/angelfelizr/mailpit:latest
+            package: mailpit
+          # test-contract's `docker run`
+          - source: docker.io/stoplight/spectral:latest
+            dest: ghcr.io/angelfelizr/spectral:latest
+            package: spectral
+          # infra/scripts/smoke-stack.sh's network probes
+          - source: docker.io/library/alpine:latest
+            dest: ghcr.io/angelfelizr/alpine:latest
+            package: alpine
+          # the edge of docker-compose.test.yml (local test stack)
+          - source: docker.io/library/nginx:alpine
+            dest: ghcr.io/angelfelizr/nginx:alpine
+            package: nginx
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: copy the image (manifest and blobs, every platform)
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ matrix.dest }}" "${{ matrix.source }}"
+      # A package created by any push is PRIVATE by default, and "Initialize
+      # containers" runs with no login -- so a private mirror is no better than
+      # Docker Hub. GitHub's Packages REST API has NO endpoint that changes
+      # visibility (verified against the whole reference: it has no PATCH at
+      # all), so this cannot be automated here. What can be automated is
+      # catching it: this check fails with the URL to fix instead of leaving
+      # test-api to fail later with a bare "Docker pull failed".
+      - name: verify the mirror is public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+          DEST: ${{ matrix.dest }}
+        run: |
+          vis=$(gh api "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE}" \
+                  --jq .visibility)
+          if [ "$vis" != "public" ]; then
+            echo "::error title=private mirror::$DEST is ${vis}. CI pulls it in 'Initialize containers', which runs before any login, so it has to be public -- and only the web UI can change that: https://github.com/users/${GITHUB_REPOSITORY_OWNER}/packages/container/package/${PACKAGE} -> Package settings -> Change visibility"
+            exit 1
+          fi
+          echo "${DEST} is public"

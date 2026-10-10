@@ -1,0 +1,266 @@
+# The LOCAL TEST STACK -- the deployed application, one command, no VM.
+#
+#   docker compose -f docker-compose.test.yml up -d
+#   open http://127.0.0.1:3838
+#
+# Prerequisites, same as every other stack in this repo: a .env at the root
+# (copy .env.example) with MODELS_DIR and DATA_DIR pointing at directories that
+# hold the verified release assets --
+#
+#   MODELS_DIR=~/nyctaxi/models DATA_DIR=~/nyctaxi/data \
+#     ./infra/scripts/fetch-assets.sh
+#
+# WHAT THIS IS, AND WHAT IT IS NOT
+#
+# It runs the SAME three images production runs (ghcr.io/angelfelizr/nyc-taxi-*
+# :latest), with the same wiring: the API never publishes a port, share/ holds
+# no database credentials, and the only published port belongs to the edge.
+# What it deliberately does NOT include is ShinyProxy, TLS and the three-network
+# topology of section 1.0 -- those answer "how does this behave on the VM",
+# which infra/scripts/smoke-stack.sh already covers. This file answers a
+# different question: "can I play a day right now".
+#
+# Every image comes from GHCR. Nothing here, and nothing in .github/workflows,
+# pulls from Docker Hub any more (ADR-0015).
+#
+# WHICH TAG, AND WHY IT IS `test` AND NOT `latest`
+#
+# CI builds the three deployment images on `ubuntu-24.04-arm` because the
+# deployment VM is ARM, so `ghcr.io/angelfelizr/nyc-taxi-*:latest` is **arm64
+# only** and will not pull on an x86_64 laptop ("no matching manifest for
+# linux/amd64"). The `:test` tag is what a workstation builds -- same
+# Dockerfiles, `docker build -f <svc>/Dockerfile .` -- and it is what
+# infra/scripts/smoke-stack.sh already defaults to for exactly this reason.
+# So:
+#
+#   docker compose -f docker-compose.test.yml up -d            # :test, if built
+#   docker compose -f docker-compose.test.yml up -d --build    # first time: ~70 min
+#   NYCTAXI_TAG=latest docker compose -f docker-compose.test.yml up -d   # on ARM
+#
+# The three services carry a `build:` for that reason: with a build config and
+# no local image, `up` builds instead of failing on a pull. Once built, the
+# layers are cached and `up -d` is seconds.
+#
+# The hardening of ADR-004 (read_only rootfs, cap_drop ALL, pids_limit,
+# mem_limit, the json-file log rotation) lives in docker-compose.prod.yml and
+# is intentionally not repeated here: this file is meant to be read top to
+# bottom in one sitting, and every one of those keys is a place to get a
+# container silently unhappy. Port it over if you ever need it.
+
+name: nyctaxi-test
+
+services:
+  # The edge. Two jobs, both load-bearing -- see infra/nginx/test.conf for why:
+  # it injects X-Client-IP (without it the 3-experiments-per-IP-per-day limit
+  # would trip on the Docker bridge address and lock you out on the third run),
+  # and it serves the app and share/ from one origin like production does.
+  edge:
+    image: ghcr.io/angelfelizr/nginx:alpine
+    container_name: nyctaxi-test-edge
+    ports:
+      # The only published application port. Loopback: this is a workstation
+      # stack, not a deployment.
+      - "127.0.0.1:3838:80"
+    volumes:
+      - ./infra/nginx/test.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./infra/nginx/snippets:/etc/nginx/snippets:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      share:
+        condition: service_started
+    networks:
+      - nyctaxi_test_net
+
+  # The Shiny UI. Same image ShinyProxy would spawn in production, started
+  # directly instead -- CMD already runs shiny::runApp on 0.0.0.0:3838.
+  app:
+    image: ghcr.io/angelfelizr/nyc-taxi-shiny:${NYCTAXI_TAG:-test}
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: nyctaxi-test-app
+    environment:
+      TAXI_API_URL: "http://api:8000"
+      API_INTERNAL_KEY: "${API_INTERNAL_KEY:?Set API_INTERNAL_KEY in .env}"
+      # The browser is on http://127.0.0.1:3838 and Results builds
+      # {SHARE_BASE_URL}/share/{token}, so this is the origin the card link
+      # has to resolve to -- the same-origin shape production has.
+      SHARE_BASE_URL: "http://127.0.0.1:3838"
+      # development, not production: .env is shared with the production stack,
+      # and on a workstation the useful thing is a verbose error rather than a
+      # CORS rule pinned to a domain nobody is serving.
+      ENV: "development"
+    volumes:
+      # application.yml mounts the dataset at /app/data for the ShinyProxy
+      # containers; the app resolves it by candidate, same reason.
+      - ${DATA_DIR:?Set DATA_DIR in .env}:/app/data:ro
+    healthcheck:
+      # `-w '%{http_code}'` is not decoration: with `-o /dev/null` and `-s`,
+      # curl's stdout is empty and `grep` would find nothing to match.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -s --max-time 5 -o /dev/null -w '%{http_code}'
+          http://127.0.0.1:3838/ | grep -q 200
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # Shiny starts in under 3 s on a warm page; the first session can pay for
+      # a namespace load. Give it room rather than flapping.
+      start_period: 30s
+    networks:
+      - nyctaxi_test_net
+
+  # The private API. NO published port -- the edge is the only way in, exactly
+  # as in production (section 1.0, 9.3). If you want to poke it from the host
+  # (api/dev/smoke.sh, curl /predict), uncomment the `ports:` below; that is a
+  # workstation convenience and nothing production ever does.
+  api:
+    image: ghcr.io/angelfelizr/nyc-taxi-api:${NYCTAXI_TAG:-test}
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: nyctaxi-test-api
+    # ports:
+    #   - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    environment:
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      ENV: "development"
+      # libgomp reads these when R starts. A fork() after OpenMP built its pool
+      # deadlocks the trajectory child of POST /experiments and leaves the day
+      # in `setup` forever (section 4.1). Sys.setenv() inside R is too late.
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      # Where the API reaches share/ to put the card link in the email (5.6).
+      SHARE_URL: "http://share:8001"
+      # The local catcher instead of a provider, so share-email works end to
+      # end. Read what was sent at http://127.0.0.1:18025.
+      SMTP_URL: "smtp://mailpit:1025"
+      # STARTTLS against a plain local relay would fail; .env defaults to 1 for
+      # the real provider.
+      SMTP_STARTTLS: "0"
+    volumes:
+      # Models are never baked into an image (section 4.5); read-only.
+      - ${MODELS_DIR:?Set MODELS_DIR in .env}:/models:ro
+      - ${DATA_DIR:?Set DATA_DIR in .env}:/data:ro
+    # mori mmaps the fitted policy into /dev/shm. Docker's default 64 MB fails
+    # with ENOSPC; too small and the policy falls back to the R heap, RSS jumps
+    # past the point an OOM-killer likes. 256 m is what production uses and it
+    # is measured, not guessed (see docker-compose.prod.yml).
+    shm_size: "256m"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # /health sits behind the internal-auth router like every other endpoint
+      # (5.4): without the key this probe would get 403 forever and `share`,
+      # which waits on service_healthy, would never start. `$$` is compose's
+      # escape, so the variable resolves inside the container and `docker
+      # inspect` shows the name, never the value.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -s --max-time 5 -o /dev/null -w '%{http_code}'
+          -H "X-Internal-Key: $$API_INTERNAL_KEY"
+          http://127.0.0.1:8000/health | grep -q 200
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      # Four models and a week of trips: measured around a minute on a laptop.
+      start_period: 90s
+    networks:
+      - nyctaxi_test_net
+
+  # The public share service. NO env_file on purpose: .env carries POSTGRES_*
+  # and section 1.0 says share must never receive them -- it has no database
+  # credentials by design (5.10). Compose still resolves the ${...} below from
+  # the project .env, so the credentials never enter the container.
+  share:
+    image: ghcr.io/angelfelizr/nyc-taxi-share:${NYCTAXI_TAG:-test}
+    build:
+      context: .
+      dockerfile: share/Dockerfile
+    container_name: nyctaxi-test-share
+    environment:
+      SHARE_HOST: "0.0.0.0"
+      SHARE_PORT: "8001"
+      TAXI_API_URL: "http://api:8000"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      SHARE_BASE_URL: "http://127.0.0.1:3838"
+      API_INTERNAL_KEY: "${API_INTERNAL_KEY:?Set API_INTERNAL_KEY in .env}"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - nyctaxi_test_net
+
+  postgres:
+    image: ghcr.io/angelfelizr/postgres:16-alpine
+    container_name: nyctaxi-test-postgres
+    env_file:
+      - .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nyctaxi} -d ${POSTGRES_DB:-nyctaxi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # NO published port. Not for tidiness: the development stack already owns
+    # 127.0.0.1:5432, and two stacks fighting over one host port is a confusing
+    # failure. `docker compose -f docker-compose.test.yml exec postgres psql
+    # -U nyctaxi nyctaxi` reaches it without one.
+    networks:
+      - nyctaxi_test_net
+
+  redis:
+    image: ghcr.io/angelfelizr/redis:7-alpine
+    container_name: nyctaxi-test-redis
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # NO published port, same reason as Postgres above.
+    networks:
+      - nyctaxi_test_net
+
+  # Local SMTP catcher so share-email can be exercised end to end (5.6): the
+  # API delivers here instead of a provider.
+  mailpit:
+    image: ghcr.io/angelfelizr/mailpit:latest
+    container_name: nyctaxi-test-mailpit
+    ports:
+      # 18025, not the 8025 the development stack publishes -- two mail catchers
+      # on one loopback port is a confusing failure, and you may well want both.
+      - "127.0.0.1:18025:8025"
+    healthcheck:
+      # `readyz` is the subcommand the image documents.
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nyctaxi_test_net
+
+volumes:
+  pgdata:
+
+networks:
+  # Pinned so compose does not prefix it (nyctaxi-test_nyctaxi_test_net).
+  # ONE network, where production has three (edge / api / data, section 1.0):
+  # the isolation between the Shiny containers and the database is a property
+  # of ShinyProxy's container-network, which this stack does not run. Say so
+  # out loud so nobody reads this file as a change of mind about section 1.0.
+  nyctaxi_test_net:
+    name: nyctaxi_test_net
+    driver: bridge

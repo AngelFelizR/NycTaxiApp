@@ -38,7 +38,9 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 - [Dockerfile](../Dockerfile) — development image (the CI test runner)
 - [docker-compose.yml](../docker-compose.yml) — dev stack (Postgres, Redis, mailpit)
 - [docker-compose.prod.yml](../docker-compose.prod.yml) — canonical deployment, standalone
+- [docker-compose.test.yml](../docker-compose.test.yml) — the local test stack: the deployed app in one command
 - [docker-compose.smoke.yml](../docker-compose.smoke.yml) — smoke overlay (repo-only paths)
+- [infra/nginx/test.conf](../infra/nginx/test.conf) — the test stack's edge (`X-Client-IP`, one origin) — ADR [0015](decisions/0015-mirror-third-party-images-into-ghcr.md)
 - [infra/scripts/smoke-stack.sh](../infra/scripts/smoke-stack.sh) — exposure assertions — ADR [0004](decisions/0004-container-hardening.md)
 - [docker-compose healthchecks and hardening](../docker-compose.prod.yml) — caps/read-only/tmpfs per service
 - AGENTS § "Fase 7: infra y despliegue" · § "Las imágenes, de verdad" · § "Endurecimiento (ADR-004)"
@@ -46,6 +48,7 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 ## CI/CD
 
 - [.github/workflows/ci.yml](../.github/workflows/ci.yml) — the whole pipeline
+- [.github/workflows/mirror-images.yml](../.github/workflows/mirror-images.yml) — the third-party images, copied into GHCR — ADR [0015](decisions/0015-mirror-third-party-images-into-ghcr.md)
 - [infra/scripts/ci_report.sh](../infra/scripts/ci_report.sh) — log → public annotations
 - [infra/scripts/dev-image.sh](../infra/scripts/dev-image.sh) — `check` gate before any test
 - ADR [0001](decisions/0001-api-tests-use-fixed-postgres.md) — service containers, not testcontainers
@@ -152,7 +155,7 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 
 - [docs/decisions/README.md](decisions/README.md) — taxonomy: where a decision goes
 - [docs/decisions/_template.md](decisions/_template.md) — ADR template (Alternatives mandatory)
-- [docs/decisions/](decisions/) — ADRs 0001–0014
+- [docs/decisions/](decisions/) — ADRs 0001–0015
 - [CHANGELOG.md](../CHANGELOG.md) — history + divergences from the master document
 - [docs/REPO_DECISION.md](REPO_DECISION.md) — monorepo vs split, split triggers
 - [docs/PLANS.md](PLANS.md) — living roadmap (not a decision record)

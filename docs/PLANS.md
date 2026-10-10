@@ -36,6 +36,14 @@ date.
   chromium and `shinytest2` out of `nix/`, dev image rebuilt and pushed
   (`nix-hash=864dfe25704f23ac`, 10.5 minutes, 0 derivations compiled).
   ADR-0013 is the other half of that build: the loopback Nix binary cache.
+- **Local one-command run + CI off Docker Hub** (2026-10-09): the red run of
+  `252cad1` was not our images — all four `ghcr.io/angelfelizr/nyc-taxi-*`
+  packages are public with `:latest` — it was the service containers and
+  Spectral, pulled from Docker Hub in the step that runs *before* any login.
+  `mirror-images.yml` copies those six into `ghcr.io/angelfelizr/*`
+  (ADR-0015), and `docker-compose.test.yml` runs the deployed application
+  locally in one command. `gh` is installed on the workstation at
+  `~/.local/bin/gh`; authenticating it is a manual step.
 
 ### How the CI jobs got green — history
 

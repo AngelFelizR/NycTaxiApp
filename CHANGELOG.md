@@ -559,6 +559,31 @@ goes where.
   `hideElements` for Leaflet's controls, whose contrast no tool can judge
   over map tiles. Both are documented in the runbook with the last run's
   numbers (0 errors / 26 warnings) and the WebAIM sign-off.
+- **`docker-compose.test.yml`: the deployed application on a workstation, one
+  command.** `docker compose -f docker-compose.test.yml up -d` and open
+  `http://127.0.0.1:3838` — the three images production runs, Postgres, Redis,
+  mailpit and an edge, with compose's health checks ordering the start. It is
+  not a fourth topology to keep in sync: it deliberately drops ShinyProxy, TLS
+  and the three networks of §1.0 (that is `smoke-stack.sh`'s job) and keeps
+  what makes the app *usable* — the API still publishes no port and share/
+  still receives no `POSTGRES_*`. Two details that look cosmetic and are not:
+  the edge injects **`X-Client-IP`** (without it the 3-experiments-per-IP-per-day
+  limit trips on the Docker bridge address and locks you out on the third run)
+  and serves the app and share/ from **one origin**, so the card link in
+  Results resolves the way it does in production. Mailpit's UI is on 18025
+  rather than 8025 because the development stack already owns that port.
+- **`.github/workflows/mirror-images.yml`: the six third-party images this
+  repository pulls, copied into `ghcr.io/angelfelizr/*`.** Postgres, Redis,
+  mailpit, Spectral, alpine and nginx, refreshed weekly and on demand, with
+  `docker buildx imagetools create` so the blobs and the whole platform list
+  travel — a `pull`/`push` round trip would have pushed only the runner's
+  architecture. A new package is **private** by default and the jobs that need
+  it pull *before* any login, so the workflow **verifies** the visibility and
+  fails with the URL to fix instead of letting `test-api` die later on a bare
+  `Docker pull failed`: GitHub's Packages REST API has no endpoint that updates
+  a package (the whole reference has no `PATCH` route, which is why the first
+  attempt answered 404 rather than 403), so making the six public is a
+  one-time web-UI action. ADR-0015.
 
 ### Changed
 - **§10 puts load testing "in CI, no bloquea un merge"; it does not run in
@@ -1143,6 +1168,44 @@ goes where.
   **503 for an unknown token** instead of 404. `api_request()` now sets
   `is_error = ~ FALSE` (single `req_error()` call -- it stores both hooks at
   once) so only transport failures map to 503.
+- **CI went red on `main` for a reason that had nothing to do with what it
+  pushes.** The run of `252cad1` failed `test-contract`, `test-api`,
+  `test-share` and `test-shiny`, and skipped the three image builds and the
+  deploy behind them. It read like broken images; it was not. All four
+  `ghcr.io/angelfelizr/nyc-taxi-*` packages are public and carry `:latest`
+  (verified anonymously, 200). What failed was everything else the jobs pull,
+  all of it from Docker Hub: `postgres:16-alpine`, `redis:7-alpine`,
+  `axllent/mailpit:latest` in the step GitHub calls "Initialize containers",
+  and `stoplight/spectral` in `test-contract` — every one of them
+  `Docker pull failed with exit code 1`, on a shared runner IP that Docker Hub
+  rate-limits. All consumers now point at the GHCR mirrors of ADR-0015.
+  **Lesson:** check *which* step failed before diagnosing the registry.
+  "Initialize containers" is step 1 of a job with `services:` and
+  `docker/login-action` is step 3, so the pull happens before any credential
+  we control exists — which is also why the obvious fix (add a Docker Hub
+  token) could never have worked, and why the real fix had to be "stop
+  depending on it" rather than "log in to it".
+- **The hardened Shiny image could not serve a single page.** `bslib` and
+  `shiny` copy their JS and fonts out of the Nix store into `tempdir()` with
+  `file.copy()`, whose `copy.mode` argument defaults to **TRUE** — so every
+  copy inherits the store's `0444` and lands read-only. The dependency is
+  re-resolved on every render with `overwrite = TRUE`, so the first render
+  succeeds and every one after it dies with EACCES inside `bs_dependency()`:
+  `GET /` answered **500**, and the container healthcheck never passed. It was
+  invisible until now because the two places that run this image never render
+  a page as that user — the development container runs the app as **root**
+  (overwriting a `0444` file is allowed), and `smoke-stack.sh` says so itself:
+  it never opens a Shiny session, so the 200 it checks is ShinyProxy's landing
+  page, not the app's. `app/Dockerfile` now makes those two trees' files
+  writable (`find -L … -exec chmod u+w`) before `USER 65534`, and the test
+  stack renders `GET /` 200 three times in a row — which is the only
+  repetition that proves it. Verified also that the API (`/health` 200) and
+  share/ (`/share/<unknown>` → 404 `application/json`) are unaffected.
+  **Lesson:** an image that starts is not an image that works. The smoke test
+  recorded "never opens a Shiny session" as a limitation and that was honest —
+  but a limitation that hides a 500 on every page is a test gap, not a note.
+  The stack that closes it is `docker-compose.test.yml`, and the check that
+  matters is the second request, not the first.
 
 ## [0.1.0] - 2026-10-04
 

@@ -5,7 +5,14 @@ services:
   nyc-taxi-app:
     build:
       context: .
-    image: angelfelizr/nyc-taxi-app:4.5.2
+    # The development image, from GHCR like everything else in this repository
+    # (ADR-0015). It is the same Dockerfile ./infra/scripts/dev-image.sh builds
+    # and tags ghcr.io/angelfelizr/nyc-taxi-dev:latest; pulling it is the
+    # normal path and `docker compose build` is the exception, because the
+    # image CI runs the suites in is built where nix/ changes, not where the
+    # code does. Note that a compose-built image carries no nix-hash label, so
+    # `dev-image.sh check` -- CI's guard -- would reject it.
+    image: ghcr.io/angelfelizr/nyc-taxi-dev:latest
     container_name: nyc-taxi-app
     ports:
       # Loopback only: this is root SSH into a container that mounts the whole
@@ -41,7 +48,7 @@ services:
       - nyctaxi_dev_net
 
   postgres:
-    image: postgres:16-alpine
+    image: ghcr.io/angelfelizr/postgres:16-alpine
     container_name: nyc-taxi-postgres
     env_file:
       - .env
@@ -64,7 +71,7 @@ services:
   # was sent at http://127.0.0.1:8025. Dev only -- production keeps whatever
   # SMTP_URL says in .env.
   mailpit:
-    image: axllent/mailpit:latest
+    image: ghcr.io/angelfelizr/mailpit:latest
     container_name: nyctaxi-mailpit
     ports:
       - "127.0.0.1:1025:1025"   # SMTP
@@ -79,7 +86,7 @@ services:
       - nyctaxi_dev_net
 
   redis:
-    image: redis:7-alpine
+    image: ghcr.io/angelfelizr/redis:7-alpine
     container_name: nyc-taxi-redis
     # Sensitivity cache (1h TTL); phase 3 adds rate limits and counters.
     command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]

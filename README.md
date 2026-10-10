@@ -83,8 +83,10 @@ zones**, loaded from Parquet in ~4.5 s / 334 MB at API startup.
 - **Docker + Compose v2** (the only host dependency for running it)
 - An SSH key at `~/.ssh/id_ed25519.pub` (the dev container installs it)
 - ~10 GB of disk for the dev path: the dev image (~9 GB, pulled from
-  Docker Hub) + the release assets (~534 MB). The three production images
-  (~14 GB) are only needed to run `smoke-stack.sh` locally.
+  GHCR) + the release assets (~534 MB). The three production images
+  (~14 GB) are only needed to run `smoke-stack.sh` locally. Everything
+  comes from `ghcr.io/angelfelizr/*` — see
+  [ADR-0015](docs/decisions/0015-mirror-third-party-images-into-ghcr.md).
 - Optional, for contract linting only: Docker is enough — Spectral runs
   in a container, there is no Node on the host
 
@@ -115,7 +117,38 @@ comments in `docker-compose.yml`.
 
 ### Run the app
 
-Three services, three terminals — the API must be up before the UI:
+One command, no SSH, no terminals:
+
+```sh
+docker compose -f docker-compose.test.yml up -d
+# then open http://127.0.0.1:3838
+```
+
+That starts **the images production runs**, Postgres, Redis, mailpit and an
+edge, in the order compose's health checks dictate. The edge is not
+decoration: it injects `X-Client-IP` (the API allows 3 experiments per IP per
+day and would otherwise count every request as the same one) and serves the
+app and `share/` from a single origin, the way Nginx does in production. Dev
+emails land in **mailpit at <http://127.0.0.1:18025>**. Tear it down with
+`docker compose -f docker-compose.test.yml down`.
+
+First time on a fresh checkout the three images are not there yet, so use
+`up -d --build` once (the Dockerfiles build Nix from the pins; later runs are
+cached). The default tag is **`test`**, the one a workstation builds, because
+CI publishes `:latest` as **arm64 only** — the deployment VM is ARM — and it
+will not pull on an x86_64 laptop. On ARM, `NYCTAXI_TAG=latest docker compose
+-f docker-compose.test.yml up -d`.
+
+It needs the release assets in the directories `.env` points at — that is what
+the one-time setup above downloads. It does **not** run ShinyProxy or TLS: the
+deployed topology is `infra/scripts/smoke-stack.sh`'s job, and this file's job
+is to let you play a day.
+
+### Develop (the dev container)
+
+To change the code you want the repo mounted and a real Nix shell, which is
+what `./setup.sh` gives you. Three services, three terminals — the API must be
+up before the UI:
 
 ```sh
 # Terminal 1 — the API (private, :8000)
@@ -139,8 +172,8 @@ tunnel open:
 ssh -N -L 3838:127.0.0.1:3838 NycTaxi     # then open http://127.0.0.1:3838
 ```
 
-Dev emails land in **mailpit at <http://127.0.0.1:8025>** (already
-published on the host loopback). The UI should print `Listening on ...`
+Here the emails land in **mailpit at <http://127.0.0.1:8025>** (the test stack
+uses 18025, so both can run at once). The UI should print `Listening on ...`
 in under 3 seconds; a slower start means something is wrong (see
 `AGENTS.md` → *Cómo arrancar la app a mano*).
 
@@ -239,7 +272,8 @@ NycTaxiApp/
 │   └── PLANS.md       living roadmap: what is next and why
 ├── .github/workflows/ CI: contract lint, four test suites, three image
 │                      builds, deploy (path-filtered per service)
-├── docker-compose.yml / docker-compose.prod.yml
+│                      + mirror-images.yml (the third-party images, → GHCR)
+├── docker-compose.yml / docker-compose.prod.yml / docker-compose.test.yml
 ├── .env.example       every variable, scan-tested in CI
 └── AGENTS.md · CHANGELOG.md · README.md
 ```
@@ -283,6 +317,7 @@ divergences from the master document in `CHANGELOG.md`).
 | **Two Nix pins** | The API pin is the training environment (R 4.5.2); the UI pin can move independently. Changing one pin rebuilds only that service's layers | `AGENTS.md` → *Nix* |
 | **Browser tests hit the real stack; the mock is deleted** | The mock's canned datetime disagreed with the real API and would have approved a broken scenario — a mock can only be as correct as the day it was written | ADR-0014 (supersedes half of ADR-0012) |
 | **A fixed Postgres, not testcontainers** | One database definition for dev, CI and tests; a container-per-suite matched production less and cost minutes | ADR-0001 |
+| **Third-party images are mirrored, not authenticated** | The service containers are pulled as *step 1* of a job, before `docker/login-action` is step 3 — so a Docker Hub token could never have reached them, and the fix had to be "stop depending on Docker Hub" | ADR-0015 |
 | **One cache layer for the share card: the edge** | The Redis PNG cache's counters had read zero since the day they were added — a layer nobody's metrics can see is a layer to remove, not to repair | ADR-0010 |
 | **Hardened containers** | `cap_drop: ALL`, read-only rootfs, no new privileges, uid 65534, CSP on the static pages — with the one accepted risk (`docker.sock` in ShinyProxy) documented instead of hidden | ADR-0004 |
 | **Load tests and pa11y run locally, not in CI** | CI has no models and no dataset: a p95 measured there would be a number about the stand-in. The runs and their numbers live in the runbook | `CHANGELOG.md` §10 divergence, runbook |
@@ -347,6 +382,7 @@ in `CHANGELOG.md`.
 | `test-share` | share service suite (PNG, HTML, waitlist, bots) |
 | `test-integration` | the contract ↔ routes ↔ clients triangle |
 | `build-api` / `build-shiny` / `build-share` | multi-stage Nix images → GHCR, behind the tests |
+| `mirror-images` | copies the six third-party images (Postgres, Redis, mailpit, Spectral, alpine, nginx) into `ghcr.io/angelfelizr/*` — weekly and on demand. Nothing in the pipeline pulls from Docker Hub any more; a Docker Hub token could never have fixed the red run, because the service containers are pulled before any step can log in ([ADR-0015](docs/decisions/0015-mirror-third-party-images-into-ghcr.md)) |
 | `deploy` | pull on the VM, `fetch-assets`, bring the stack up, smoke test — runs once `VM_HOST`, `VM_USER`, `VM_SSH_KEY` secrets exist (see [`docs/operations/first-deploy.md`](docs/operations/first-deploy.md)) |
 
 Tests run **inside the development image** (`ghcr.io/angelfelizr/nyc-taxi-dev`),

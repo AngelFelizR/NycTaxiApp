@@ -198,7 +198,7 @@ fi
 # so from that network the API has to answer and Postgres and Redis must not
 # resolve at all. Simulated with a throwaway container instead of starting a
 # real session -- same network, same result, no browser.
-if docker run --rm --network nyctaxi_api_net alpine:latest \
+if docker run --rm --network nyctaxi_api_net ghcr.io/angelfelizr/alpine:latest \
      sh -c 'nc -z -w 3 api 8000' >/dev/null 2>&1; then
   pass "(f) from api_net: api:8000 is reachable"
 else
@@ -208,7 +208,7 @@ fi
 # postgres and redis exist only on nyctaxi_data_net, so DNS itself has to fail
 # here -- not just the connection.
 unreachable() {
-  if docker run --rm --network nyctaxi_api_net alpine:latest \
+  if docker run --rm --network nyctaxi_api_net ghcr.io/angelfelizr/alpine:latest \
        sh -c "nc -z -w 3 $1 $2" >/dev/null 2>&1; then
     fail "(f) from api_net: $1:$2 is reachable" "section 1.0 forbids it"
   else

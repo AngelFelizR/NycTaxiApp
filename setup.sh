@@ -12,7 +12,7 @@ done
 
 # Execute pull only if the variable remains true
 if [ "$HACER_PULL" = true ]; then
-    echo "Starting image download from Docker Hub..."
+    echo "Starting image download from GHCR..."
     docker compose pull
 else
     echo "Skipping docker compose pull (using local image)..."

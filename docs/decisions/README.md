@@ -94,6 +94,7 @@ Decisions the master document does not make, or makes differently.
 | [`0012-cypress-is-the-e2e-and-load-tool.md`](0012-cypress-is-the-e2e-and-load-tool.md) | §10, §12, §8 (differs) | Cypress does E2E, pa11y and load; `shinytest2` goes |
 | [`0013-local-nix-binary-cache.md`](0013-local-nix-binary-cache.md) | §8.6 | A signed loopback Nix binary cache feeds the dev image: 54 min of layers → 5 |
 | [`0014-the-ui-tests-the-real-api.md`](0014-the-ui-tests-the-real-api.md) | §10, §5.4, §5.6 (supersedes half of 0012) | The browser suite talks to the real stack; `dev/mock_api.R` and `test-shinytest2.R` are deleted |
+| [`0015-mirror-third-party-images-into-ghcr.md`](0015-mirror-third-party-images-into-ghcr.md) | §8.6 | The images CI pulls are copied into `ghcr.io/angelfelizr/*`: a Docker Hub token runs too late to reach them |
 ## Execution still pending
 
 Not decisions — work. Everything external to this repository is in

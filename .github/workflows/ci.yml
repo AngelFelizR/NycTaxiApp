@@ -38,6 +38,12 @@
 #     the real API, which needs the dataset to play a day and the reference
 #     distribution for /finish to answer. The download is cached and verified
 #     by infra/scripts/fetch-assets.sh (section 4.5).
+#   - NOTHING here pulls from Docker Hub. The service containers and the
+#     spectral image are mirrors under ghcr.io/angelfelizr, refreshed by
+#     .github/workflows/mirror-images.yml. "Initialize containers" is step 1 of
+#     a job with services and docker/login-action is step 3, so a Docker Hub
+#     token could never have rescued it -- and Docker Hub rate-limits the shared
+#     runner IPs. ADR-0015.
 
 name: CI
 
@@ -134,9 +140,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The spectral image is our own mirror (see the header). GHCR would serve
+      # it anonymously -- the package is public -- but the login is one step and
+      # removes the whole class of "the package turned private" failures.
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: spectral lint (0 errors is the bar)
         run: |
-          docker run --rm -v "$PWD:/repo" -w /repo stoplight/spectral lint \
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            "${REGISTRY}/angelfelizr/spectral:latest" lint \
             contract/openapi.yaml contract/share.openapi.yaml \
             --ruleset contract/.spectral.yaml
 
@@ -150,7 +165,7 @@ jobs:
     if: needs.changes.outputs.api == 'true' || needs.changes.outputs.nix == 'true'
     services:
       postgres:
-        image: postgres:16-alpine
+        image: ghcr.io/angelfelizr/postgres:16-alpine
         env:
           POSTGRES_USER: nyctaxi
           POSTGRES_PASSWORD: nyctaxi
@@ -163,7 +178,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
       redis:
-        image: redis:7-alpine
+        image: ghcr.io/angelfelizr/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -252,7 +267,7 @@ jobs:
       || needs.changes.outputs.api == 'true' || needs.changes.outputs.share == 'true'
     services:
       postgres:
-        image: postgres:16-alpine
+        image: ghcr.io/angelfelizr/postgres:16-alpine
         env:
           POSTGRES_USER: nyctaxi
           POSTGRES_PASSWORD: nyctaxi
@@ -265,7 +280,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
       redis:
-        image: redis:7-alpine
+        image: ghcr.io/angelfelizr/redis:7-alpine
         ports:
           - 6379:6379
         options: >-
@@ -276,7 +291,7 @@ jobs:
       # POST /share-email pulls the card from share/ and answers 503 without a
       # relay (5.6), which is what the email prompt in Results exercises.
       mailpit:
-        image: axllent/mailpit:latest
+        image: ghcr.io/angelfelizr/mailpit:latest
         ports:
           - 1025:1025
           - 8025:8025
@@ -364,7 +379,7 @@ jobs:
       API_INTERNAL_KEY: ci-internal-key
     services:
       redis:
-        image: redis:7-alpine
+        image: ghcr.io/angelfelizr/redis:7-alpine
         ports:
           - 6379:6379
         options: >-

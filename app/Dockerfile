@@ -76,6 +76,26 @@ RUN mkdir -p /opt/r-lib \
  && R CMD INSTALL --library=/opt/r-lib /app/app \
  && rm -rf /tmp/* /tmp/..?* /tmp/.[!.]*
 
+# bslib and shiny copy their JS/fonts out of the Nix store into tempdir() with
+# file.copy(), whose copy.mode argument defaults to TRUE -- so every copy
+# inherits the store's 0444 and lands read-only. The dependency is resolved on
+# every page render with overwrite = TRUE, so the FIRST render succeeds and
+# every one after it dies with EACCES inside bs_dependency(), and the page
+# answers 500.
+#
+# This only shows up when the app runs unprivileged. As root (the development
+# container, and every test suite) overwriting a 0444 file is allowed, which is
+# why nothing caught it: smoke-stack.sh never opens a Shiny session, so the
+# landing page it sees is ShinyProxy's, not this app's.
+#
+# The store stays read-only in spirit -- nothing here needs to be written, only
+# read, and the point is the MODE the copy inherits. Done as root, before USER
+# below: nobody cannot chmod a root-owned store path ("Operation not permitted").
+# find -L, because /opt/r/library/<pkg> is a symlink into /nix/store and a plain
+# `chmod -R` would chmod the symlink rather than its target.
+RUN find -L /opt/r/library/bslib/lib /opt/r/library/shiny/www \
+      -type f -exec chmod u+w {} +
+
 
 # Phase 7 hardening: run unprivileged (ADR-004). The base image has no
 # useradd and /etc/passwd is a symlink into the Nix store, so a numeric id
