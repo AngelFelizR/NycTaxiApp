@@ -73,17 +73,23 @@ RUN nix-env -f '<nixpkgs>' -iA direnv nix-direnv && \
 
 RUN echo '. /nix/var/nix/profiles/default/etc/profile.d/nix.sh' >> /root/.bashrc
 
+# ── Layer 3b: the slim-R strip and its overlay ───────────────────────────────
+# These have to land BEFORE Layer 4: nix/pkgs.nix imports the overlay, which
+# imports r-slim.nix, so `nix-instantiate`ing pkgs.nix needs both on disk. The
+# service Dockerfiles copy nix/ as a whole and do not have this ordering to
+# worry about.
+COPY nix/r-slim.nix /root/nix/r-slim.nix
+COPY nix/slim-r-overlay.nix /root/nix/slim-r-overlay.nix
+
 # ── Layer 4: fetch and cache the nixpkgs tarball ─────────────────────────────
 COPY nix/pkgs.nix /root/nix/pkgs.nix
 RUN nix-instantiate --eval /root/nix/pkgs.nix && \
     nix-collect-garbage -d
 
 # ── Layer 5: system packages (R, fontconfig, locales, fonts) ────────────────
+# system.nix does `inherit (pkgs) R`: the pin already slims R via the overlay,
+# so building another slim R here would put two Rs in the image (ADR-0016).
 COPY nix/system.nix /root/nix/system.nix
-# system.nix imports this (R with the toolchain stripped); the file-by-file
-# COPYs below mean it has to be named explicitly, unlike the service
-# Dockerfiles which copy nix/ as a whole.
-COPY nix/r-slim.nix /root/nix/r-slim.nix
 RUN nix-build /root/nix/system.nix -o /nix/profiles/system-packages && \
     nix-collect-garbage -d
 

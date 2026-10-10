@@ -41,9 +41,19 @@ date.
   packages are public with `:latest` — it was the service containers and
   Spectral, pulled from Docker Hub in the step that runs *before* any login.
   `mirror-images.yml` copies those six into `ghcr.io/angelfelizr/*`
-  (ADR-0015), and `docker-compose.test.yml` runs the deployed application
+  (ADR-0015), and   `docker-compose.test.yml` runs the deployed application
   locally in one command. `gh` is installed on the workstation at
   `~/.local/bin/gh`; authenticating it is a manual step.
+- **The toolchain really out of the images** (2026-10-10, ADR-0016): ADR-0011
+  stripped `system.nix` and the images kept ~1.4 GB anyway, because the
+  compiled R packages pointed their RPATH at a second, unstripped `pkgs.R`.
+  The pin now applies `nix/slim-r-overlay.nix`, so there is one R per pin;
+  `CC` is rewritten to the bare `cc` instead of blanked (so `R CMD INSTALL`
+  still compiles inside a Nix build); `gfortran` is **kept** — three ways of
+  supplying it to nixpkgs' packages were measured and failed; and `gdal` loses
+  its Python half, which is where the UI's python3 came from. All four package
+  sets rebuilt to prove it. Follow-up: measure the three images before/after
+  and put the development image through the same treatment.
 
 ### How the CI jobs got green — history
 

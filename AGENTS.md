@@ -428,6 +428,50 @@ números en el runbook, sección "Manual checks"). Queda solo la fase 9.
   estación de trabajo; los tres servicios llevan `build:` para que `up` construya
   si no existe. En ARM, `NYCTAXI_TAG=latest docker compose … up -d`.
 
+## El toolchain de R en las imágenes (ADR-0011, ADR-0016)
+
+- **Una sola R por pin, y es la slim.** `nix/pkgs.nix`, `pkgs-api.nix` y
+  `pkgs-app.nix` importan nixpkgs **con `nix/slim-r-overlay.nix`**, que pone
+  `R = import ./r-slim.nix { pkgs = prev; }`. `system.nix` y
+  `system-runtime.nix` solo hacen `inherit (pkgs) R` — construir ahí otra R
+  slim sería el mismo bug al revés. **`pkgs` en `r-slim.nix` es obligatorio y
+  tiene que ser `prev`** (el set sin el overlay): lee `pkgs.R`, así que un set
+  ya slim recursa.
+- **Por qué el overlay y no solo `system.nix` (el bug de ADR-0011):** los
+  paquetes R compilados llevan en su RPATH la R **contra la que se
+  construyeron**. Verificado en las imágenes servidas: los 63 `.so` de la UI
+  apuntaban a una **segunda** R sin stripar, y su `Makeconf` devolvía
+  `openjdk` (572 MB), `gcc`, `gfortran` y `python3` al closure. ≈1,4 GB que
+  las imágenes **nunca** perdieron. Mide el closure de lo que se **envía**, no
+  de la capa que lo construye.
+- **Tratamientos distintos según el tipo de referencia** (todo en
+  `nix/r-slim.nix`):
+  - `gcc-wrapper` → **se reescribe a nombre plano** (`CC = cc`, `CXX = `c++`).
+    Con el hash en blanco (`/nix/store/eeee…/bin/cc`) `R CMD SHLIB` muere;
+    con el nombre plano compila dentro de un build de Nix (stdenv pone `cc` en
+    el PATH). Sus `-L` de la salida sin envoltorio se **borran** de `FLIBS`,
+    `ldpaths` y `libtool`; `-gcc-<ver>-lib/` **no** matchea el patrón y se
+    queda (ahí vive `libgcc_s.so`).
+  - `openjdk`, `glib-dev`, `cairo-dev`, `pango-dev`, `graphviz` → se **borran**
+    con `remove-references-to`; `etc/javaconf` se elimina.
+  - **`gfortran` se queda (339 MB)** y `FC`/`F77` conservan la ruta completa.
+    Medido: reescribirlo a `gfortran` plano rompe **todos** los paquetes
+    Fortran, y las tres formas de re-suministrarlo fallaron —
+    `propagatedNativeBuildInputs` no llega; una lista de paquetes Fortran en
+    el overlay solo arregla las referencias directas (`classInt` seguía
+    construyendo su propio `KernSmooth` sin parchear); `overrideScope` no
+    existe en este nixpkgs. Ver ADR-0016 antes de tocar esto.
+- **Python de la UI viene de `gdal`, no de R.** `sf`/`terra` necesitan
+  `libgdal.so` (67 MB, legítimo) pero gdal embarca su módulo Python y ~20 CLI
+  con `numpy` en los shebangs/PATH → `python3`. El overlay borra
+  `lib/python3*` y **todo fichero de `bin/` que nombre una store path de
+  python/numpy**. Ojo: la mitad son **dotfiles** (`$out/bin/*` no los matchea)
+  y la otra mitad son envoltorios **bash**, así que filtrar por shebang
+  Python no sirve — hay que usar `find` y la propia store path.
+- **Coste de cambiar un pin:** se recompilan R y **todos** los paquetes R
+  (medido: `r-share` 25 min, `r-app` 19, `r-api` 42, gdal 46). El cache
+  público `rstats-on-nix` no sirve: nadie de ahí compiló contra esta R.
+
 ## El binario cache local de Nix (ADR-0013)
 
 - **Por qué existe:** `nix/` no está cubierto por los caches públicos.
