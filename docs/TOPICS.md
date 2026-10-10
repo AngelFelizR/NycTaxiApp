@@ -22,7 +22,8 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 - [nix/pkgs-app.nix](../nix/pkgs-app.nix) — UI pin
 - [nix/system.nix](../nix/system.nix) — generic system layer (shells, dev image)
 - [nix/system-runtime.nix](../nix/system-runtime.nix) — image layer without `nix` — ADR [0008](decisions/0008-runtime-system-layer.md)
-- [nix/r-slim.nix](../nix/r-slim.nix) — R without its build toolchain — ADR [0011](decisions/0011-runtime-r-without-the-toolchain.md)
+- [nix/r-slim.nix](../nix/r-slim.nix) — R without its build toolchain — ADR [0011](decisions/0011-runtime-r-without-the-toolchain.md), [0016](decisions/0016-one-r-per-pin-and-no-toolchain.md)
+- [nix/slim-r-overlay.nix](../nix/slim-r-overlay.nix) — the pin's `R` is the slim one, and `gdal` loses its Python half — ADR [0016](decisions/0016-one-r-per-pin-and-no-toolchain.md)
 - [nix/r-api.nix](../nix/r-api.nix) · [nix/r-app.nix](../nix/r-app.nix) · [nix/r-share.nix](../nix/r-share.nix) — runtime package sets per service
 - [nix/r-shiny.nix](../nix/r-shiny.nix) · [nix/r-geo.nix](../nix/r-geo.nix) · [nix/r-plotting.nix](../nix/r-plotting.nix) · [nix/r-dev.nix](../nix/r-dev.nix) · [nix/r-shared.nix](../nix/r-shared.nix) — UI/shared/dev modules
 - [nix/node.nix](../nix/node.nix) — node for the browser toolchain
@@ -155,7 +156,7 @@ Master document = `../04 - Documento Maestro de Decisiones del Proyecto.md`
 
 - [docs/decisions/README.md](decisions/README.md) — taxonomy: where a decision goes
 - [docs/decisions/_template.md](decisions/_template.md) — ADR template (Alternatives mandatory)
-- [docs/decisions/](decisions/) — ADRs 0001–0015
+- [docs/decisions/](decisions/) — ADRs 0001–0016
 - [CHANGELOG.md](../CHANGELOG.md) — history + divergences from the master document
 - [docs/REPO_DECISION.md](REPO_DECISION.md) — monorepo vs split, split triggers
 - [docs/PLANS.md](PLANS.md) — living roadmap (not a decision record)

@@ -584,6 +584,20 @@ goes where.
   a package (the whole reference has no `PATCH` route, which is why the first
   attempt answered 404 rather than 403), so making the six public is a
   one-time web-UI action. ADR-0015.
+- **`nix/slim-r-overlay.nix`: the pin slims its own R, and `gdal` loses its
+  Python half.** `pkgs.nix`, `pkgs-api.nix` and `pkgs-app.nix` now import
+  nixpkgs with an overlay that sets `R = import ./r-slim.nix { pkgs = prev; }`,
+  so `pkgs.R` — the R nixpkgs' own `rPackages` are built against — is the
+  stripped one, and `system.nix` / `system-runtime.nix` just `inherit (pkgs) R`.
+  Inside `r-slim.nix` the treatment now differs by kind: `gcc-wrapper` is
+  **rewritten to the bare command** (`CC = cc`) instead of blanked, so it
+  still resolves inside a Nix build while the store path disappears; its
+  unwrapped `-L` entries are removed from `FLIBS`, `ldpaths` and libtool,
+  keeping the `-lib` output that holds `libgcc_s.so`; `openjdk` and the `-dev`
+  headers stay blanked as before; and **`gfortran` is deliberately kept** (see
+  Fixed). The overlay also strips `gdal`'s Python: `lib/python3*` plus every
+  `bin/` file naming a python or numpy store path — `sf` and `terra` need
+  `libgdal.so`, not gdal's CLI. ADR-0016.
 
 ### Changed
 - **§10 puts load testing "in CI, no bloquea un merge"; it does not run in
@@ -1205,7 +1219,31 @@ goes where.
   recorded "never opens a Shiny session" as a limitation and that was honest —
   but a limitation that hides a 500 on every page is a test gap, not a note.
   The stack that closes it is `docker-compose.test.yml`, and the check that
-  matters is the second request, not the first.
+   matters is the second request, not the first.
+- **The toolchain ADR-0011 removed was never actually out of the images.** Its
+  measurement — closure of `nix/system.nix`, 2608 → 585 MB — was correct, and
+  so was the conclusion drawn from it: *"there is exactly one R per pin"*. Not
+  in the images. The strip was applied by `system.nix` and
+  `system-runtime.nix`, which put a slim R in `/opt/system`, and never to
+  `pkgs.R`, which is what nixpkgs' `rPackages` are built against. Every
+  compiled `.so` (63 of the UI's 106 packages, 12 of the API's) carried an
+  RPATH to a **second, unstripped R**, and its `Makeconf` named `openjdk`
+  (572 MB), `gcc` (305), `gfortran` (353) and, through `glib-dev`, `python3`
+  (199) — ≈ 1.4 GB still in the image. A second path put Python in the UI that
+  this ADR could not have known about: `sf`/`terra` → `libgdal.so`, which also
+  ships Python CLI scripts → numpy → python3. Now fixed at the pin
+  (`nix/slim-r-overlay.nix`), and every R package set rebuilt to prove it:
+  `r-share`, `r-shared`, `r-app` (with `sf`, `terra`, `classInt`) and `r-api`
+  (169 packages, with `Matrix`, `RcppEigen`, `RSpectra`) all build, and the
+  new gdal's closure holds zero python paths. **`gfortran` stays**, at 339 MB:
+  `FC` keeps the store path because rewriting it to the bare command breaks
+  every Fortran package, and three ways of re-supplying it were measured and
+  failed (see ADR-0016 for all three).
+  **Lesson:** a closure measurement is a measurement of the expression you
+  passed it, not of the artefact you ship. The images never had the 585 MB
+  number, and nothing in the repository would have said so — the fix is to
+  measure the closure of the thing that ships, not of the layer that builds
+  it.
 
 ## [0.1.0] - 2026-10-04
 

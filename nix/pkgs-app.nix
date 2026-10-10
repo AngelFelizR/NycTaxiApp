@@ -9,4 +9,12 @@
 # CAUTION: nix/system.nix provides the R binary that loads these packages, so
 # if this pin ever moves to a different nixpkgs branch, system.nix has to move
 # with it (pass the same pkgs to both) or the libraries will not load.
-import (fetchTarball "https://github.com/rstats-on-nix/nixpkgs/archive/2026-09-28.tar.gz") {}
+#
+# The overlay makes this pin's `R` the slim one (nix/r-slim.nix): the UI ships
+# ~106 R packages, 63 of them compiled, and without it every one of those .so
+# pointed at a second, unstripped R -- ADR-0016. Deliberately NOT a function:
+# every caller does `import ./pkgs-app.nix` and expects a set.
+let
+  base = fetchTarball "https://github.com/rstats-on-nix/nixpkgs/archive/2026-09-28.tar.gz";
+in
+  import base { overlays = [ (import ./slim-r-overlay.nix) ]; }

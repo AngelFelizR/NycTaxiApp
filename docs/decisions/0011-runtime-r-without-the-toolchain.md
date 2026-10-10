@@ -1,6 +1,7 @@
 # 0011. The runtime images run R without the toolchain R was built with
 
-- Status: Accepted
+- Status: Accepted — **amended by ADR-0016**, which does not undo the strip
+  but shows it was only applied to half of the problem
 - Date: 2026-10-08
 - Phase: 7 (§1.1 image size, §8.6 push time)
 - Relates to: ADR-0008 (the system layer, and why the obvious version of this
@@ -44,6 +45,17 @@ that runs `remove-references-to` over the four text files. Both
 `nix/system-runtime.nix` (the three service images) import it, instantiated
 with the caller's pin — so there is exactly one R per pin and dev cannot test
 a toolchain that production does not run.**
+
+> **Amended by ADR-0016 (2026-10-10).** The measurement below is correct for
+> the closure of `nix/system.nix`, and that is all it ever measured. The
+> claim that there is "exactly one R per pin" did not hold in the images: the
+> strip was applied to the system layer but never to `pkgs.R`, which is what
+> nixpkgs' `rPackages` are built against. Every compiled `.so` therefore
+> carried an RPATH to a *second*, unstripped R, whose `Makeconf` dragged
+> openjdk (572 MB) and `glib-dev` → python3 back into every image — ~1.4 GB
+> that this ADR's 585 MB figure never saw. ADR-0016 fixes it, and with it
+> turns up a path to python this one did not know about (`gdal`, via `sf` and
+> `terra`).
 
 Measured, before and after, same pin:
 

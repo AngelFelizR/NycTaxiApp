@@ -25,11 +25,13 @@
 # pkgs-api.nix for the API, pkgs-app.nix for the UI, pkgs.nix for share.
 { pkgs ? import ./pkgs.nix }:
 let
-  # Same slim R as nix/system.nix, but instantiated with THIS caller's pin:
-  # the API image passes pkgs-api.nix (R 4.5.2), the others pkgs.nix. The
-  # store paths removed are computed from the same pin that built R, so the
-  # six targets always match what R actually references.
-  R = import ./r-slim.nix { inherit pkgs; };
+  # Same slim R as nix/system.nix. The pin slims it (nix/pkgs.nix applies
+  # nix/slim-r-overlay.nix), so this layer only takes it -- building another
+  # one here would put two Rs in the image, which is what ADR-0016 fixed. The
+  # API Dockerfile passes pkgs-api.nix (R 4.5.2), the others the default, and
+  # the strip is computed from the same pin that built R so its targets always
+  # match what R actually references.
+  inherit (pkgs) R;
 in
   pkgs.buildEnv {
     name = "system-runtime-packages";

@@ -9,10 +9,13 @@
 # nix/system.nix` (Dockerfile layer 5) working unchanged.
 { pkgs ? import ./pkgs.nix }:
 let
-  # R with openjdk/gcc/gfortran/glib-dev stripped out of its own output.
+  # R with the toolchain stripped out of its own output. It is NOT built here:
+  # the pin already is (nix/pkgs.nix applies nix/slim-r-overlay.nix), so this
+  # layer just takes it. Doing `import ./r-slim.nix` on top would produce a
+  # SECOND derivation -- two Rs again, which is exactly the bug ADR-0016 fixed.
   # 1,340 MB of toolchain that a runtime never uses; see nix/r-slim.nix and
   # ADR-0011 for why it is safe and what it costs.
-  R = import ./r-slim.nix { inherit pkgs; };
+  inherit (pkgs) R;
 in
   pkgs.buildEnv {
     name = "system-packages";
