@@ -20,6 +20,8 @@ _site/
 
 # Project data (large, not for Git)
 .vscode/
+# Editor/agent workspace state (plan files, session artefacts) — never code.
+.opencode/
 .quarto/
 
 # OS files

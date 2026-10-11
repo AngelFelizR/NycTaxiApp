@@ -551,25 +551,47 @@ jobs:
   # Secrets the repository needs: VM_HOST, VM_USER, VM_SSH_KEY.
   # The VM is expected to hold the repository at ~/NycTaxiApp with .env,
   # /srv/nyctaxi/{models,data} and /backups already provisioned.
+  #
+  # Until they exist this job still RUNS -- the job's `if` cannot read
+  # `secrets` (the contexts allowed there are github, needs, vars and inputs),
+  # so the gate is a step: it reports "not configured" and every real step
+  # skips on its output. Without it a push to main would end red on a deploy
+  # that was never possible, which is a terrible way to learn that the VM is
+  # not ready. docs/operations/first-deploy.md is the checklist.
   # ---------------------------------------------------------------------
   deploy:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [changes, build-api, build-shiny, build-share]
     environment: production
+    # Job-level `env` CAN read secrets (job-level `if` cannot); the gate and
+    # every step below read them from here.
+    env:
+      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_USER: ${{ secrets.VM_USER }}
+      VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Are the VM secrets configured?
+        id: gate
+        run: |
+          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$VM_SSH_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=deploy skipped::VM_HOST/VM_USER/VM_SSH_KEY are not all set. The stack cannot be deployed until they are -- see docs/operations/first-deploy.md."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.configured == 'true'
+        uses: actions/checkout@v4
       - name: Configure SSH
+        if: steps.gate.outputs.configured == 'true'
         run: |
           mkdir -p ~/.ssh
           umask 077
-          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
       - name: Deploy and smoke test
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_USER: ${{ secrets.VM_USER }}
+        if: steps.gate.outputs.configured == 'true'
         run: |
           set -euo pipefail
           # The scripts travel with the checkout, not with the images.
