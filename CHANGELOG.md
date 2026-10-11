@@ -597,7 +597,10 @@ goes where.
   headers stay blanked as before; and **`gfortran` is deliberately kept** (see
   Fixed). The overlay also strips `gdal`'s Python: `lib/python3*` plus every
   `bin/` file naming a python or numpy store path — `sf` and `terra` need
-  `libgdal.so`, not gdal's CLI. ADR-0016.
+  `libgdal.so`, not gdal's CLI. ADR-0016. **Measured on the three rebuilt
+  images (2026-10-10, uncompressed):** share 4,23 → **2,66 GB** (−37 %),
+  api 4,83 → **3,33 GB** (−31 %), shiny 5,31 → **3,63 GB** (−32 %) — and
+  `command -v java; command -v python3` prints `NO NO` in all three.
 
 ### Changed
 - **§10 puts load testing "in CI, no bloquea un merge"; it does not run in

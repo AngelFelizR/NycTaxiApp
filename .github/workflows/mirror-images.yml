@@ -87,6 +87,14 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Copies a manifest that changes nothing always passes. Uploading NEW
+      # blobs -- upstream moved -- can fail with "permission_denied:
+      # write_package" if the package was first pushed from a workstation with
+      # a personal PAT: the repository's GITHUB_TOKEN only writes to packages
+      # it created or that are connected to the repository. Seen with mailpit
+      # on the first run (ADR-0015). The fix is either a one-off push from a
+      # workstation or connecting the package in its settings -- not a change
+      # to this workflow.
       - name: copy the image (manifest and blobs, every platform)
         run: |
           docker buildx imagetools create \

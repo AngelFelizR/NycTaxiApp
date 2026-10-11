@@ -132,5 +132,22 @@ closure contains **zero** python paths.
 - **Divergences:** none with the master document. §1.1 limits RAM; nothing in
   it names a package set or a store path.
 
-- **Follow-ups:** rebuild the three deployment images and record the before
-  and after; add the development image to the same measurement.
+- **Follow-ups:** ~~rebuild the three deployment images and record the before
+  and after~~ **done (2026-10-10).** Rebuilt on the host with
+  `docker build --network=host` against the local binary cache, measured
+  uncompressed with `docker image inspect`:
+
+  | Image | Before | After | Δ |
+  |---|---|---|---|
+  | `nyc-taxi-share:test` | 4 234 161 810 B (4.23 GB) | **2 662 491 405 B (2.66 GB)** | −1.57 GB, −37 % |
+  | `nyc-taxi-api:test` | 4 828 999 984 B (4.83 GB) | **3 333 449 852 B (3.33 GB)** | −1.50 GB, −31 % |
+  | `nyc-taxi-shiny:test` | 5 313 113 028 B (5.31 GB) | **3 631 977 180 B (3.63 GB)** | −1.68 GB, −32 % |
+
+  The three hold together with the closures this ADR measured: R 2134 → 1167
+  MB, gdal 1180 → 960 MB, and one R instead of two. `command -v java; command
+  -v python3` prints `NO NO` in all three — verified in the running test
+  stack, which also answers `GET /` 200 three times in a row.
+- **Still open:** the development image. It imports the same pins so its R is
+  slim too, but it was rebuilt for the test environment (ADR-0015's guard)
+  without being re-measured — and it is Ubuntu-based, so its `python3` is the
+  OS's, not this ADR's business. Its size is the remaining number.

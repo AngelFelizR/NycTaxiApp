@@ -758,23 +758,29 @@ la VM. Lo que sigue es lo que existe y cómo se verificó.
 
 ### Las imágenes, de verdad
 
-Construidas en el host con `docker build -f <svc>/Dockerfile .` (el contenedor
-de desarrollo **no** lleva Docker; ahí solo hay sshd y el repo montado):
+Construidas en el host con `docker build --network=host -f <svc>/Dockerfile .`
+(el contenedor de desarrollo **no** lleva Docker; ahí solo hay sshd y el repo
+montado). Tamaños sin comprimir, medidos el **2026-10-10**, después de
+ADR-0016 — antes eran 4,23 / 4,83 / 5,22 GB:
 
 | Imagen | Tamaño | Arranque verificado |
 |---|---|---|
-| `ghcr.io/angelfelizr/nyc-taxi-share:test` | 4,23 GB | `Listening … RSS 199 MB` (límite de §1.1: 256 MB), `/health` 200, `/share/<junk>` 503 JSON |
-| `ghcr.io/angelfelizr/nyc-taxi-api:test` | 4,83 GB | `Listening … RSS 373 MB`; sin modelos/DB/Redis degrada con mensajes en vez de morir (warmup en `tryCatch`) |
-| `ghcr.io/angelfelizr/nyc-taxi-shiny:test` | 5,22 GB | `Listening on :3838`, `GET /` 200 y **`GET /privacy.html` 200 con el enlace presente dos veces** (Setup + footer) |
+| `ghcr.io/angelfelizr/nyc-taxi-share:test` | **2,66 GB** (−37 %) | `Listening … RSS 199 MB` (límite de §1.1: 256 MB), `/health` 200, `/share/<junk>` 503 JSON |
+| `ghcr.io/angelfelizr/nyc-taxi-api:test` | **3,33 GB** (−31 %) | `Listening … RSS 373 MB`; sin modelos/DB/Redis degrada con mensajes en vez de morir (warmup en `tryCatch`) |
+| `ghcr.io/angelfelizr/nyc-taxi-shiny:test` | **3,63 GB** (−32 %) | `Listening on :3838`, `GET /` 200 y **`GET /privacy.html` 200 con el enlace presente dos veces** (Setup + footer) |
 
-- Los builds tardan ~10 min (share), ~45 min (api) y ~15 min (app) porque el
-  store del contenedor de build está vacío y **compila los paquetes R desde
-  source**: el cache de `rstats-on-nix.cachix.org` no cubre este pin. El caché
-  de BuildKit lo amortiza entre runs.
-- **Ojo con `nix/system.nix`:** cambiarlo invalida la capa `COPY nix/`, que va
-  antes de los `nix-build` de los paquetes R, así que **recompila todo** (~70
-  min las tres). Mantenerlo mínimo (R, locales, fuentes, `curl`). Etiquetar
-  bien: el script de build debe producir `nyc-taxi-shiny`, no `nyc-taxi-app`.
+- **Ninguna de las tres lleva `java` ni `python3`:**
+  `docker run --rm --entrypoint sh <img> -c 'command -v java; command -v python3'`
+  → `NO NO` en las tres. Ojo: la imagen de **desarrollo** sí tiene `python3`,
+  que es Ubuntu de base — no es una imagen de despliegue.
+- Los builds tardan ~36 min (share), ~72 (api) y ~93 (app) en el host con el
+  cache binario local sirviendo (ADR-0013). Sin él hay que compilar R y todos
+  los paquetes otra vez: es lo que costaron los primeros, y por eso la
+  primera vez tarda horas.
+- **Ojo con `nix/pkgs*.nix`:** los pins aplican `slim-r-overlay.nix`, así que
+  cambiarlos invalida R **y todos los paquetes R**. Mantenerlos mínimos.
+  Etiquetar bien: el script de build debe producir `nyc-taxi-shiny`, no
+  `nyc-taxi-app`.
 - El `app` arrancando es también la prueba de que `shared/load.R` se resuelve
   dentro de la imagen: sin `shared/` las `label_curve_*` de `strings.R`
   fallarían antes del primer `Listening`.

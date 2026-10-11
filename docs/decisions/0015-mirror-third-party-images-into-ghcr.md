@@ -123,6 +123,18 @@ exact URL to fix, rather than letting `test-api` fail minutes later with a bare
   their order, not the registry the dependencies come from; §1.0 specifies the
   runtime networks, which this does not touch.
 
+- **The workflow can only write to packages it created.** Measured on its
+  first run: five of six succeeded and `mailpit` failed with
+  `denied: permission_denied: write_package`, because that package (like all
+  six) was first pushed from a workstation with a personal PAT, and the
+  repository's `GITHUB_TOKEN` only gets write on packages it creates itself or
+  that are connected to the repository. It only bites when upstream moves and
+  the copy has **new blobs** to upload — a refresh that changes nothing copies
+  a manifest and passes. So the failure is rare, loud and correct: the fix is
+  either a one-off re-push from a workstation, or connecting the package to
+  the repository in its settings (Package settings → Connected repositories).
+  Observed and worked around by hand on 2026-10-11; the six were re-mirrored
+  from the host afterwards and all answered 200 anonymously.
 - **Follow-ups:** none blocking. The one worth remembering is that the
   development image is already public on GHCR and built by hand
   (`infra/scripts/dev-image.sh`), so it is not part of this mirror and does not
